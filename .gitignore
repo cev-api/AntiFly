@@ -1,0 +1,12 @@
+.gradle/
+build/
+**/build/
+**/.gradle/
+*.class
+*.jar
+*.log
+*.bin
+*.tmp
+*.iml
+.idea/
+.vscode/

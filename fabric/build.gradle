@@ -1,0 +1,33 @@
+plugins {
+    id 'fabric-loom' version '1.7.2'
+}
+
+base {
+    archivesName = 'AntiFly-fabric'
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${fabric_minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    implementation project(':common')
+}
+
+tasks.processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', project.fabric_minecraft_version
+    inputs.property 'loader_version', project.fabric_loader_version
+    filteringCharset = 'UTF-8'
+    filesMatching('fabric.mod.json') {
+        expand(
+            version: project.version,
+            fabric_minecraft_version: project.fabric_minecraft_version,
+            fabric_loader_version: project.fabric_loader_version
+        )
+    }
+}
+
+java {
+    withSourcesJar()
+}

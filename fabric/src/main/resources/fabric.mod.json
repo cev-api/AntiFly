@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "antifly",
+  "version": "${version}",
+  "name": "AntiFly",
+  "description": "Blocks flying and excessive ground speed on servers.",
+  "authors": ["AntiFly"],
+  "contact": {},
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.antifly.fabric.AntiFlyFabric"
+    ]
+  },
+  "depends": {
+    "minecraft": "${fabric_minecraft_version}",
+    "fabricloader": ">=${fabric_loader_version}",
+    "fabric-api": "*"
+  }
+}
