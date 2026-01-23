@@ -16,7 +16,7 @@ Designed specifically for **anarchy and semi-anarchy servers** that want to stop
 
 ## Platforms
 - Paper: 1.21.x
-- Fabric: 1.21.1 (mojmap)
+- Fabric: 1.21.11 (mojmap, requires Fabric Loader 0.18.1 and Fabric API 0.141.1+1.21.11)
 
 ## Build
 ```bash
@@ -69,5 +69,4 @@ Notes:
 ## Config
 - Paper: `plugins/AntiFly/config.yml`
 - Fabric: `config/antifly.json`
-
 

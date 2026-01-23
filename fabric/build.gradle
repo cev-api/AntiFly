@@ -6,12 +6,14 @@ base {
     archivesName = 'AntiFly-fabric'
 }
 
+def commonProject = project(':common')
+
 dependencies {
     minecraft "com.mojang:minecraft:${fabric_minecraft_version}"
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
-    implementation project(':common')
+    implementation commonProject
 }
 
 tasks.processResources {
@@ -28,6 +30,22 @@ tasks.processResources {
     }
 }
 
+tasks.named('remapJar').configure {
+    dependsOn(commonProject.tasks.named('classes'))
+    from(commonProject.sourceSets.main.output)
+}
+
+tasks.named('remapSourcesJar').configure {
+    from(commonProject.sourceSets.main.output)
+}
+
 java {
     withSourcesJar()
+}
+
+loom {
+    enableModProvidedJavadoc.set(false)
+    interfaceInjection {
+        enableDependencyInterfaceInjection.set(false)
+    }
 }

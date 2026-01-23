@@ -28,12 +28,21 @@ import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.entity.vehicle.Boat;
+import net.minecraft.world.entity.vehicle.boat.Boat;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.permissions.Permissions;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.Relative;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelHeightAccessor;
+import java.util.EnumSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,7 +84,7 @@ public final class AntiFlyFabric implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(Commands.literal("antifly")
-                .requires(source -> source.hasPermission(2))
+                .requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_MODERATOR))
                 .then(Commands.literal("help").executes(ctx -> {
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly enable"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly disable"), false);
@@ -189,7 +198,7 @@ public final class AntiFlyFabric implements ModInitializer {
         }
 
         if (!config.enabled) {
-            boolean inFluid = player.isInWaterOrBubble() || player.isInLava() || player.isSwimming();
+            boolean inFluid = isInFluid(player);
             boolean serverOnGround = hasGroundSupport(player);
             updateSupport(state, serverOnGround, inFluid, pos);
             state.lastPos = pos;
@@ -198,7 +207,7 @@ public final class AntiFlyFabric implements ModInitializer {
             return;
         }
 
-        boolean inFluid = player.isInWaterOrBubble() || player.isInLava() || player.isSwimming();
+        boolean inFluid = isInFluid(player);
         boolean inVehicle = player.isPassenger();
         boolean clientOnGround = player.onGround();
         boolean serverOnGround = hasGroundSupport(player);
@@ -218,7 +227,7 @@ public final class AntiFlyFabric implements ModInitializer {
         }
         boolean inBoatWater = false;
         if (inVehicle && player.getVehicle() instanceof Boat boat) {
-            inBoatWater = boat.isInWaterOrBubble()
+            inBoatWater = isBoatInFluid(boat)
                 || boat.onGround()
                 || !boat.level().getFluidState(boat.blockPosition()).isEmpty()
                 || !boat.level().getFluidState(boat.blockPosition().below()).isEmpty();
@@ -355,7 +364,8 @@ public final class AntiFlyFabric implements ModInitializer {
                 && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
                 state.voidTicks++;
                 if (state.voidTicks > AntiFlyConstants.VOID_FALL_TICKS) {
-                    Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : player.serverLevel().getSharedSpawnPos().getCenter();
+                    Vec3 fallback = Vec3.atCenterOf(player.blockPosition());
+                    Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : fallback;
                     rubberBand(player, state, target, "void_fall", 0.0, 0.0);
                     state.lastPos = pos;
                     state.wasGliding = false;
@@ -397,7 +407,7 @@ public final class AntiFlyFabric implements ModInitializer {
         if (player.isSprinting()) {
             max *= 1.3;
         }
-        MobEffectInstance speed = player.getEffect(MobEffects.MOVEMENT_SPEED);
+        MobEffectInstance speed = player.getEffect(MobEffects.SPEED);
         if (speed != null) {
             max *= 1.0 + (0.2 * (speed.getAmplifier() + 1));
         }
@@ -414,7 +424,7 @@ public final class AntiFlyFabric implements ModInitializer {
             .lookupOrThrow(Registries.ENCHANTMENT)
             .getOrThrow(Enchantments.DEPTH_STRIDER);
         int depthStrider = EnchantmentHelper.getItemEnchantmentLevel(
-            depthStriderHolder, player.getInventory().getArmor(0));
+            depthStriderHolder, player.getItemBySlot(EquipmentSlot.FEET));
         if (depthStrider > 0) {
             max *= 1.0 + (0.15 * depthStrider);
         }
@@ -432,7 +442,7 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private double maxAirSpeed(ServerPlayer player) {
         double max = config.airMax;
-        MobEffectInstance speed = player.getEffect(MobEffects.MOVEMENT_SPEED);
+        MobEffectInstance speed = player.getEffect(MobEffects.SPEED);
         if (speed != null) {
             max *= 1.0 + (0.2 * (speed.getAmplifier() + 1));
         }
@@ -441,7 +451,7 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private double maxAirVertical(ServerPlayer player) {
         double max = config.airVerticalMax;
-        MobEffectInstance jump = player.getEffect(MobEffects.JUMP);
+        MobEffectInstance jump = player.getEffect(MobEffects.JUMP_BOOST);
         if (jump != null) {
             max *= 1.0 + (0.1 * (jump.getAmplifier() + 1));
         }
@@ -517,15 +527,17 @@ public final class AntiFlyFabric implements ModInitializer {
     }
 
     private boolean hasElytraEquipped(ServerPlayer player) {
-        return player.getInventory().getArmor(2).is(Items.ELYTRA);
+        return player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA);
     }
 
     private boolean isVoidBelow(ServerPlayer player) {
-        double voidY = player.serverLevel().getMinBuildHeight() - AntiFlyConstants.VOID_Y_OFFSET;
+        ServerLevel level = getServerLevel(player);
+        double voidY = minBuildHeight(level) - AntiFlyConstants.VOID_Y_OFFSET;
         return player.position().y < voidY;
     }
 
     private boolean hasGroundSupport(ServerPlayer player) {
+        ServerLevel level = getServerLevel(player);
         AABB box = player.getBoundingBox();
         double minX = box.minX + AntiFlyConstants.SUPPORT_EPSILON;
         double maxX = box.maxX - AntiFlyConstants.SUPPORT_EPSILON;
@@ -533,22 +545,23 @@ public final class AntiFlyFabric implements ModInitializer {
         double maxZ = box.maxZ - AntiFlyConstants.SUPPORT_EPSILON;
         double y = box.minY - AntiFlyConstants.SUPPORT_EPSILON;
         int blockY = Mth.floor(y);
-        if (blockY < player.serverLevel().getMinBuildHeight()) {
+        if (blockY < minBuildHeight(level)) {
             return false;
         }
-        if (hasSolidAt(player, minX, blockY, minZ)) {
+        if (hasSolidAt(level, minX, blockY, minZ)) {
             return true;
         }
-        if (hasSolidAt(player, maxX, blockY, minZ)) {
+        if (hasSolidAt(level, maxX, blockY, minZ)) {
             return true;
         }
-        if (hasSolidAt(player, minX, blockY, maxZ)) {
+        if (hasSolidAt(level, minX, blockY, maxZ)) {
             return true;
         }
-        return hasSolidAt(player, maxX, blockY, maxZ);
+        return hasSolidAt(level, maxX, blockY, maxZ);
     }
 
     private boolean hasGroundSupportLoose(ServerPlayer player) {
+        ServerLevel level = getServerLevel(player);
         AABB box = player.getBoundingBox();
         double minX = box.minX + AntiFlyConstants.SUPPORT_EPSILON;
         double maxX = box.maxX - AntiFlyConstants.SUPPORT_EPSILON;
@@ -556,25 +569,25 @@ public final class AntiFlyFabric implements ModInitializer {
         double maxZ = box.maxZ - AntiFlyConstants.SUPPORT_EPSILON;
         double y = box.minY - AntiFlyConstants.SUPPORT_LOOSE_EPSILON;
         int blockY = Mth.floor(y);
-        if (blockY < player.serverLevel().getMinBuildHeight()) {
+        if (blockY < minBuildHeight(level)) {
             return false;
         }
-        if (hasSolidAt(player, minX, blockY, minZ)) {
+        if (hasSolidAt(level, minX, blockY, minZ)) {
             return true;
         }
-        if (hasSolidAt(player, maxX, blockY, minZ)) {
+        if (hasSolidAt(level, maxX, blockY, minZ)) {
             return true;
         }
-        if (hasSolidAt(player, minX, blockY, maxZ)) {
+        if (hasSolidAt(level, minX, blockY, maxZ)) {
             return true;
         }
-        return hasSolidAt(player, maxX, blockY, maxZ);
+        return hasSolidAt(level, maxX, blockY, maxZ);
     }
 
-    private boolean hasSolidAt(ServerPlayer player, double x, int y, double z) {
+    private boolean hasSolidAt(ServerLevel level, double x, int y, double z) {
         BlockPos pos = new BlockPos(Mth.floor(x), y, Mth.floor(z));
-        BlockState state = player.serverLevel().getBlockState(pos);
-        return !state.getCollisionShape(player.serverLevel(), pos).isEmpty();
+        BlockState state = level.getBlockState(pos);
+        return !state.getCollisionShape(level, pos).isEmpty();
     }
 
     private void rubberBand(ServerPlayer player, PlayerState state, Vec3 target, String reason,
@@ -594,7 +607,14 @@ public final class AntiFlyFabric implements ModInitializer {
             state.lastRubberBandAtMs = now;
         }
 
-        player.teleportTo(player.serverLevel(), target.x, target.y, target.z, player.getYRot(), player.getXRot());
+        player.teleportTo(
+            getServerLevel(player),
+            target.x, target.y, target.z,
+            java.util.EnumSet.noneOf(net.minecraft.world.entity.Relative.class),
+            player.getYRot(),
+            player.getXRot(),
+            false
+        );
         player.setDeltaMovement(0.0, 0.0, 0.0);
         state.airTicks = 0;
         state.lastPos = target;
@@ -607,6 +627,31 @@ public final class AntiFlyFabric implements ModInitializer {
             player.getVehicle().teleportTo(target.x, target.y, target.z);
         }
         rubberBand(player, state, target, reason, 0.0, 0.0);
+    }
+
+    private ServerLevel getServerLevel(ServerPlayer player) {
+        return (ServerLevel) player.level();
+    }
+
+    private boolean isInFluid(ServerPlayer player) {
+        Level level = player.level();
+        BlockPos pos = player.blockPosition();
+        return isFluidAt(level, pos) || isFluidAt(level, pos.above());
+    }
+
+    private boolean isBoatInFluid(Boat boat) {
+        Level level = boat.level();
+        BlockPos pos = boat.blockPosition();
+        return isFluidAt(level, pos) || isFluidAt(level, pos.below());
+    }
+
+    private boolean isFluidAt(Level level, BlockPos pos) {
+        FluidState fluidState = level.getFluidState(pos);
+        return fluidState.is(FluidTags.WATER) || fluidState.is(FluidTags.LAVA);
+    }
+
+    private int minBuildHeight(Level level) {
+        return ((LevelHeightAccessor) level).getMinY();
     }
 
     private void resetState(PlayerState state, Vec3 pos) {
