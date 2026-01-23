@@ -180,8 +180,11 @@ public final class AntiFlyListener implements Listener {
                 return;
             }
             state.groundSpoofTicks = 0;
-            // Ignore mid-air jump detection; we only care about flight.
-            if (!serverOnGround && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON) {
+            // Ignore mid-air jump detection; we only care about sustained flight.
+            boolean hoveringStill = !serverOnGround
+                && state.airTicks > AntiFlyConstants.MAX_AIR_TICKS
+                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON;
+            if (hoveringStill) {
                 state.hoverTicks++;
                 if (state.hoverTicks > AntiFlyConstants.HOVER_TICKS) {
                     Location target = state.lastSupport != null ? state.lastSupport : from;

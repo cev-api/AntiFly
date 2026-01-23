@@ -335,8 +335,11 @@ public final class AntiFlyFabric implements ModInitializer {
                 return;
             }
             state.groundSpoofTicks = 0;
-            // Ignore mid-air jump detection; we only care about flight.
-            if (!serverOnGround && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON) {
+            // Ignore mid-air jump detection; we only care about prolonged hovering.
+            boolean hoveringStill = !serverOnGround
+                && state.airTicks > AntiFlyConstants.MAX_AIR_TICKS
+                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON;
+            if (hoveringStill) {
                 state.hoverTicks++;
                 if (state.hoverTicks > AntiFlyConstants.HOVER_TICKS) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
