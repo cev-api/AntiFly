@@ -21,7 +21,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         "airVertical",
         "waterSpeed",
         "waterVertical",
-        "groundSpeed",
+        "groundSpeedWalking",
+        "groundSpeedMounted",
         "elytraEnabled",
         "elytraMaxHorizontal",
         "elytraMaxUp",
@@ -59,7 +60,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set airVertical <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set waterSpeed <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set waterVertical <value>");
-                sender.sendMessage(ChatColor.YELLOW + "/antifly set groundSpeed <value>");
+                sender.sendMessage(ChatColor.YELLOW + "/antifly set groundSpeedWalking <value>");
+                sender.sendMessage(ChatColor.YELLOW + "/antifly set groundSpeedMounted <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set elytraEnabled <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set elytraMaxHorizontal <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set elytraMaxUp <value>");
@@ -86,7 +88,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "status" -> {
                 AntiFlyPlugin.Settings s = plugin.getSettings();
                 sender.sendMessage(ChatColor.AQUA + "AntiFly: " + (plugin.isAntiFlyEnabled() ? "enabled" : "disabled"));
-                sender.sendMessage(ChatColor.GRAY + "Limits: ground=" + s.groundMax
+                sender.sendMessage(ChatColor.GRAY + "Limits: groundWalking=" + s.groundWalkMax
+                    + " groundMounted=" + s.groundMountedMax
                     + " air=" + s.airMax
                     + " airVertical=" + s.airVerticalMax
                     + " water=" + s.waterMax
@@ -215,7 +218,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
 
     private String formatSettingValue(AntiFlyPlugin.Settings s, String key) {
         return switch (key) {
-            case "groundSpeed" -> String.valueOf(s.groundMax);
+            case "groundSpeed", "groundSpeedWalking" -> String.valueOf(s.groundWalkMax);
+            case "groundSpeedMounted" -> String.valueOf(s.groundMountedMax);
             case "airSpeed" -> String.valueOf(s.airMax);
             case "airVertical" -> String.valueOf(s.airVerticalMax);
             case "waterSpeed" -> String.valueOf(s.waterMax);

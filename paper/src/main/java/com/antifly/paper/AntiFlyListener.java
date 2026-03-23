@@ -5,7 +5,9 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.entity.AbstractHorse;
 import org.bukkit.entity.Boat;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -92,15 +94,21 @@ public final class AntiFlyListener implements Listener {
 
         if (inVehicle && state.vehicleGraceTicks > 0) {
             state.vehicleGraceTicks--;
+            state.vehicleAirTicks = 0;
             state.lastPos = to.clone();
             return;
         }
 
         if (inVehicle && !serverOnGround && !inFluid) {
-            Location target = state.lastSupport != null ? state.lastSupport : to;
-            rubberBandVehicle(player, state, target, "vehicle_flight");
-            state.wasGliding = false;
-            return;
+            state.vehicleAirTicks++;
+            if (state.vehicleAirTicks > vehicleAirGraceTicks(player.getVehicle())) {
+                Location target = state.lastSupport != null ? state.lastSupport : to;
+                rubberBandVehicle(player, state, target, "vehicle_flight");
+                state.wasGliding = false;
+                return;
+            }
+        } else {
+            state.vehicleAirTicks = 0;
         }
 
         if (isExempt(player)) {
@@ -258,7 +266,9 @@ public final class AntiFlyListener implements Listener {
     }
 
     private double maxGroundSpeed(Player player) {
-        double max = plugin.getSettings().groundMax;
+        double max = player.isInsideVehicle()
+            ? plugin.getSettings().groundMountedMax
+            : plugin.getSettings().groundWalkMax;
         if (player.isSprinting()) {
             max *= 1.3;
         }
@@ -412,20 +422,12 @@ public final class AntiFlyListener implements Listener {
         if (blockY < loc.getWorld().getMinHeight()) {
             return false;
         }
-        Block b1 = loc.getWorld().getBlockAt((int) Math.floor(minX), blockY, (int) Math.floor(minZ));
-        if (!b1.isPassable()) {
+        if (hasSolidSupportAtY(loc, minX, maxX, minZ, maxZ, blockY)) {
             return true;
         }
-        Block b2 = loc.getWorld().getBlockAt((int) Math.floor(maxX), blockY, (int) Math.floor(minZ));
-        if (!b2.isPassable()) {
-            return true;
-        }
-        Block b3 = loc.getWorld().getBlockAt((int) Math.floor(minX), blockY, (int) Math.floor(maxZ));
-        if (!b3.isPassable()) {
-            return true;
-        }
-        Block b4 = loc.getWorld().getBlockAt((int) Math.floor(maxX), blockY, (int) Math.floor(maxZ));
-        return !b4.isPassable();
+        int deepBlockY = (int) Math.floor(box.getMinY() - AntiFlyConstants.SUPPORT_TALL_BLOCK_DEPTH);
+        return deepBlockY != blockY && deepBlockY >= loc.getWorld().getMinHeight()
+            && hasSolidSupportAtY(loc, minX, maxX, minZ, maxZ, deepBlockY);
     }
 
     private boolean hasGroundSupportLoose(Player player, Location loc) {
@@ -442,6 +444,15 @@ public final class AntiFlyListener implements Listener {
         if (blockY < loc.getWorld().getMinHeight()) {
             return false;
         }
+        if (hasSolidSupportAtY(loc, minX, maxX, minZ, maxZ, blockY)) {
+            return true;
+        }
+        int deepBlockY = (int) Math.floor(box.getMinY() - AntiFlyConstants.SUPPORT_TALL_BLOCK_DEPTH);
+        return deepBlockY != blockY && deepBlockY >= loc.getWorld().getMinHeight()
+            && hasSolidSupportAtY(loc, minX, maxX, minZ, maxZ, deepBlockY);
+    }
+
+    private boolean hasSolidSupportAtY(Location loc, double minX, double maxX, double minZ, double maxZ, int blockY) {
         Block b1 = loc.getWorld().getBlockAt((int) Math.floor(minX), blockY, (int) Math.floor(minZ));
         if (!b1.isPassable()) {
             return true;
@@ -456,6 +467,13 @@ public final class AntiFlyListener implements Listener {
         }
         Block b4 = loc.getWorld().getBlockAt((int) Math.floor(maxX), blockY, (int) Math.floor(maxZ));
         return !b4.isPassable();
+    }
+
+    private int vehicleAirGraceTicks(Entity vehicle) {
+        if (vehicle instanceof AbstractHorse) {
+            return AntiFlyConstants.VEHICLE_AIR_GRACE_TICKS_HORSE;
+        }
+        return AntiFlyConstants.VEHICLE_AIR_GRACE_TICKS;
     }
 
     private void rubberBandVehicle(Player player, AntiFlyPlugin.PlayerState state, Location target, String reason) {
@@ -478,6 +496,7 @@ public final class AntiFlyListener implements Listener {
         state.lastServerOnGround = false;
         state.lastGlideHorizontal = 0.0;
         state.vehicleGraceTicks = 0;
+        state.vehicleAirTicks = 0;
         state.wasInVehicle = false;
         if (loc != null) {
             state.lastGround = loc.clone();
@@ -495,6 +514,7 @@ public final class AntiFlyListener implements Listener {
             state.hoverTicks = 0;
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
+            state.vehicleAirTicks = 0;
             state.lastServerOnGround = true;
         } else if (inFluid) {
             state.lastSupport = loc.clone();
@@ -502,6 +522,7 @@ public final class AntiFlyListener implements Listener {
             state.hoverTicks = 0;
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
+            state.vehicleAirTicks = 0;
             state.lastServerOnGround = false;
         }
     }

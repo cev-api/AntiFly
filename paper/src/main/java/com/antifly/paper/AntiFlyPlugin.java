@@ -72,7 +72,8 @@ public final class AntiFlyPlugin extends JavaPlugin {
     void updateSetting(String key, double value) {
         FileConfiguration config = getConfig();
         switch (key) {
-            case "groundSpeed" -> settings.groundMax = value;
+            case "groundSpeed", "groundSpeedWalking" -> settings.groundWalkMax = value;
+            case "groundSpeedMounted" -> settings.groundMountedMax = value;
             case "airSpeed" -> settings.airMax = value;
             case "airVertical" -> settings.airVerticalMax = value;
             case "waterSpeed" -> settings.waterMax = value;
@@ -91,7 +92,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
                 return;
             }
         }
-        config.set("limits.ground", settings.groundMax);
+        config.set("limits.ground", settings.groundWalkMax);
+        config.set("limits.groundWalking", settings.groundWalkMax);
+        config.set("limits.groundMounted", settings.groundMountedMax);
         config.set("limits.air", settings.airMax);
         config.set("limits.airVertical", settings.airVerticalMax);
         config.set("limits.water", settings.waterMax);
@@ -116,7 +119,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
     private void loadConfigValues() {
         FileConfiguration config = getConfig();
         config.addDefault("enabled", true);
-        config.addDefault("limits.ground", AntiFlyConstants.BASE_GROUND_MAX + AntiFlyConstants.GROUND_BUFFER);
+        config.addDefault("limits.ground", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX);
+        config.addDefault("limits.groundWalking", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX);
+        config.addDefault("limits.groundMounted", AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX);
         config.addDefault("limits.air", AntiFlyConstants.BASE_AIR_MAX + AntiFlyConstants.AIR_BUFFER);
         config.addDefault("limits.airVertical", AntiFlyConstants.BASE_AIR_VERTICAL_MAX + AntiFlyConstants.AIR_VERTICAL_BUFFER);
         config.addDefault("limits.water", AntiFlyConstants.BASE_WATER_MAX + AntiFlyConstants.WATER_BUFFER);
@@ -136,7 +141,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         saveConfig();
 
         antiFlyEnabled = config.getBoolean("enabled", true);
-        settings.groundMax = config.getDouble("limits.ground", AntiFlyConstants.BASE_GROUND_MAX + AntiFlyConstants.GROUND_BUFFER);
+        settings.groundWalkMax = config.getDouble("limits.groundWalking",
+            config.getDouble("limits.ground", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX));
+        settings.groundMountedMax = config.getDouble("limits.groundMounted", AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX);
         settings.airMax = config.getDouble("limits.air", AntiFlyConstants.BASE_AIR_MAX + AntiFlyConstants.AIR_BUFFER);
         settings.airVerticalMax = config.getDouble("limits.airVertical", AntiFlyConstants.BASE_AIR_VERTICAL_MAX + AntiFlyConstants.AIR_VERTICAL_BUFFER);
         settings.waterMax = config.getDouble("limits.water", AntiFlyConstants.BASE_WATER_MAX + AntiFlyConstants.WATER_BUFFER);
@@ -170,7 +177,8 @@ public final class AntiFlyPlugin extends JavaPlugin {
     }
 
     static final class Settings {
-        double groundMax;
+        double groundWalkMax;
+        double groundMountedMax;
         double airMax;
         double airVerticalMax;
         double waterMax;
@@ -202,6 +210,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         boolean wasGliding;
         boolean lastServerOnGround;
         int vehicleGraceTicks;
+        int vehicleAirTicks;
         boolean wasInVehicle;
         long lastRubberBandAtMs;
     }

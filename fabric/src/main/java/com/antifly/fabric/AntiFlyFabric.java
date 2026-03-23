@@ -39,6 +39,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.permissions.Permissions;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Relative;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -95,7 +97,8 @@ public final class AntiFlyFabric implements ModInitializer {
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set airVertical <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set waterSpeed <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set waterVertical <value>"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly set groundSpeed <value>"), false);
+                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly set groundSpeedWalking <value>"), false);
+                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly set groundSpeedMounted <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set elytraEnabled <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set elytraMaxHorizontal <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set elytraMaxUp <value>"), false);
@@ -124,7 +127,8 @@ public final class AntiFlyFabric implements ModInitializer {
                 .then(Commands.literal("status").executes(ctx -> {
                     ctx.getSource().sendSuccess(() -> Component.literal("AntiFly: " + (config.enabled ? "enabled" : "disabled")), false);
                     ctx.getSource().sendSuccess(() -> Component.literal(
-                        "Limits: ground=" + config.groundMax
+                        "Limits: groundWalking=" + config.groundWalkMax
+                            + " groundMounted=" + config.groundMountedMax
                             + " air=" + config.airMax
                             + " airVertical=" + config.airVerticalMax
                             + " water=" + config.waterMax
@@ -173,7 +177,8 @@ public final class AntiFlyFabric implements ModInitializer {
                     .then(settingNode("airVertical"))
                     .then(settingNode("waterSpeed"))
                     .then(settingNode("waterVertical"))
-                    .then(settingNode("groundSpeed"))
+                    .then(settingNode("groundSpeedWalking"))
+                    .then(settingNode("groundSpeedMounted"))
                     .then(settingNode("elytraEnabled"))
                     .then(settingNode("elytraMaxHorizontal"))
                     .then(settingNode("elytraMaxUp"))
@@ -243,16 +248,22 @@ public final class AntiFlyFabric implements ModInitializer {
 
         if (inVehicle && state.vehicleGraceTicks > 0) {
             state.vehicleGraceTicks--;
+            state.vehicleAirTicks = 0;
             state.lastPos = pos;
             return;
         }
 
         if (inVehicle && !serverOnGround && !inFluid) {
-            Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
-            rubberBandVehicle(player, state, target, "vehicle_flight");
-            state.lastPos = pos;
-            state.wasGliding = false;
-            return;
+            state.vehicleAirTicks++;
+            if (state.vehicleAirTicks > vehicleAirGraceTicks(player.getVehicle())) {
+                Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
+                rubberBandVehicle(player, state, target, "vehicle_flight");
+                state.lastPos = pos;
+                state.wasGliding = false;
+                return;
+            }
+        } else {
+            state.vehicleAirTicks = 0;
         }
 
         if (isExempt(player)) {
@@ -403,7 +414,7 @@ public final class AntiFlyFabric implements ModInitializer {
     }
 
     private double maxGroundSpeed(ServerPlayer player) {
-        double max = config.groundMax;
+        double max = player.isPassenger() ? config.groundMountedMax : config.groundWalkMax;
         if (player.isSprinting()) {
             max *= 1.3;
         }
@@ -548,16 +559,12 @@ public final class AntiFlyFabric implements ModInitializer {
         if (blockY < minBuildHeight(level)) {
             return false;
         }
-        if (hasSolidAt(level, minX, blockY, minZ)) {
+        if (hasSolidSupportAtY(level, minX, maxX, minZ, maxZ, blockY)) {
             return true;
         }
-        if (hasSolidAt(level, maxX, blockY, minZ)) {
-            return true;
-        }
-        if (hasSolidAt(level, minX, blockY, maxZ)) {
-            return true;
-        }
-        return hasSolidAt(level, maxX, blockY, maxZ);
+        int deepBlockY = Mth.floor(box.minY - AntiFlyConstants.SUPPORT_TALL_BLOCK_DEPTH);
+        return deepBlockY != blockY && deepBlockY >= minBuildHeight(level)
+            && hasSolidSupportAtY(level, minX, maxX, minZ, maxZ, deepBlockY);
     }
 
     private boolean hasGroundSupportLoose(ServerPlayer player) {
@@ -572,6 +579,15 @@ public final class AntiFlyFabric implements ModInitializer {
         if (blockY < minBuildHeight(level)) {
             return false;
         }
+        if (hasSolidSupportAtY(level, minX, maxX, minZ, maxZ, blockY)) {
+            return true;
+        }
+        int deepBlockY = Mth.floor(box.minY - AntiFlyConstants.SUPPORT_TALL_BLOCK_DEPTH);
+        return deepBlockY != blockY && deepBlockY >= minBuildHeight(level)
+            && hasSolidSupportAtY(level, minX, maxX, minZ, maxZ, deepBlockY);
+    }
+
+    private boolean hasSolidSupportAtY(ServerLevel level, double minX, double maxX, double minZ, double maxZ, int blockY) {
         if (hasSolidAt(level, minX, blockY, minZ)) {
             return true;
         }
@@ -645,6 +661,21 @@ public final class AntiFlyFabric implements ModInitializer {
         return isFluidAt(level, pos) || isFluidAt(level, pos.below());
     }
 
+    private int vehicleAirGraceTicks(Entity vehicle) {
+        EntityType<?> type = vehicle.getType();
+        if (type == EntityType.HORSE
+            || type == EntityType.DONKEY
+            || type == EntityType.MULE
+            || type == EntityType.SKELETON_HORSE
+            || type == EntityType.ZOMBIE_HORSE
+            || type == EntityType.CAMEL
+            || type == EntityType.LLAMA
+            || type == EntityType.TRADER_LLAMA) {
+            return AntiFlyConstants.VEHICLE_AIR_GRACE_TICKS_HORSE;
+        }
+        return AntiFlyConstants.VEHICLE_AIR_GRACE_TICKS;
+    }
+
     private boolean isFluidAt(Level level, BlockPos pos) {
         FluidState fluidState = level.getFluidState(pos);
         return fluidState.is(FluidTags.WATER) || fluidState.is(FluidTags.LAVA);
@@ -666,6 +697,7 @@ public final class AntiFlyFabric implements ModInitializer {
         state.lastServerOnGround = false;
         state.lastGlideHorizontal = 0.0;
         state.vehicleGraceTicks = 0;
+        state.vehicleAirTicks = 0;
         state.wasInVehicle = false;
         if (pos != null) {
             state.lastGroundPos = pos;
@@ -683,6 +715,7 @@ public final class AntiFlyFabric implements ModInitializer {
             state.hoverTicks = 0;
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
+            state.vehicleAirTicks = 0;
             state.lastServerOnGround = true;
         } else if (inFluid) {
             state.lastSupportPos = pos;
@@ -690,13 +723,15 @@ public final class AntiFlyFabric implements ModInitializer {
             state.hoverTicks = 0;
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
+            state.vehicleAirTicks = 0;
             state.lastServerOnGround = false;
         }
     }
 
     private int setValue(net.minecraft.commands.CommandSourceStack source, String key, double value) {
         switch (key) {
-            case "groundSpeed" -> config.groundMax = value;
+            case "groundSpeed", "groundSpeedWalking" -> config.groundWalkMax = value;
+            case "groundSpeedMounted" -> config.groundMountedMax = value;
             case "airSpeed" -> config.airMax = value;
             case "airVertical" -> config.airVerticalMax = value;
             case "waterSpeed" -> config.waterMax = value;
@@ -740,7 +775,8 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private String formatSettingValue(String key) {
         return switch (key) {
-            case "groundSpeed" -> String.valueOf(config.groundMax);
+            case "groundSpeed", "groundSpeedWalking" -> String.valueOf(config.groundWalkMax);
+            case "groundSpeedMounted" -> String.valueOf(config.groundMountedMax);
             case "airSpeed" -> String.valueOf(config.airMax);
             case "airVertical" -> String.valueOf(config.airVerticalMax);
             case "waterSpeed" -> String.valueOf(config.waterMax);
@@ -764,7 +800,8 @@ public final class AntiFlyFabric implements ModInitializer {
         "airVertical",
         "waterSpeed",
         "waterVertical",
-        "groundSpeed",
+        "groundSpeedWalking",
+        "groundSpeedMounted",
         "elytraEnabled",
         "elytraMaxHorizontal",
         "elytraMaxUp",
@@ -784,7 +821,8 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private static final class AntiFlyConfig {
         boolean enabled = true;
-        double groundMax = AntiFlyConstants.BASE_GROUND_MAX + AntiFlyConstants.GROUND_BUFFER;
+        double groundWalkMax = AntiFlyConstants.DEFAULT_GROUND_WALK_MAX;
+        double groundMountedMax = AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX;
         double airMax = AntiFlyConstants.BASE_AIR_MAX + AntiFlyConstants.AIR_BUFFER;
         double airVerticalMax = AntiFlyConstants.BASE_AIR_VERTICAL_MAX + AntiFlyConstants.AIR_VERTICAL_BUFFER;
         double waterMax = AntiFlyConstants.BASE_WATER_MAX + AntiFlyConstants.WATER_BUFFER;
@@ -849,6 +887,7 @@ public final class AntiFlyFabric implements ModInitializer {
         boolean wasGliding;
         boolean lastServerOnGround;
         int vehicleGraceTicks;
+        int vehicleAirTicks;
         boolean wasInVehicle;
         long lastRubberBandAtMs;
     }

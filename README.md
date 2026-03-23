@@ -8,6 +8,7 @@ Only the following are checked:
 - Unauthorized flight
 - Excessive movement speed (ground, air, water)
 - Elytra speed, stall, and slowdown behavior (optional)
+- Vehicle flight while preserving normal mount jumping behavior
 
 Nothing else is monitored or restricted.  
 No combat checks. No scaffolding checks. No packet analysis. No behavior profiling.
@@ -48,7 +49,8 @@ These commands are available in-game. Requires op or `antifly.admin` on Paper.
 /antifly set airVertical <value>
 /antifly set waterSpeed <value>
 /antifly set waterVertical <value>
-/antifly set groundSpeed <value>
+/antifly set groundSpeedWalking <value>
+/antifly set groundSpeedMounted <value>
 /antifly set elytraEnabled <value>
 /antifly set elytraMaxHorizontal <value>
 /antifly set elytraMaxUp <value>
@@ -65,8 +67,13 @@ These commands are available in-game. Requires op or `antifly.admin` on Paper.
 Notes:
 - `/antifly set` shows all current settings.
 - `/antifly set <key>` shows the current value for that key.
+- Default ground limits:
+  - `groundSpeedWalking=0.475`
+  - `groundSpeedMounted=0.750`
+- Legacy `groundSpeed` remains accepted as an alias of `groundSpeedWalking`.
+- Fence/wall top collisions are treated as valid ground support.
+- Horse and other mount jumps have extra vehicle-air grace before flight is blocked.
 
 ## Config
 - Paper: `plugins/AntiFly/config.yml`
 - Fabric: `config/antifly.json`
-
