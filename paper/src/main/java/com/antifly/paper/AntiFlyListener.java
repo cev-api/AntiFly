@@ -191,7 +191,8 @@ public final class AntiFlyListener implements Listener {
             // Ignore mid-air jump detection; we only care about sustained flight.
             boolean hoveringStill = !serverOnGround
                 && state.airTicks > AntiFlyConstants.MAX_AIR_TICKS
-                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON;
+                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON
+                && horizontal <= AntiFlyConstants.HOVER_HORIZONTAL_EPSILON;
             if (hoveringStill) {
                 state.hoverTicks++;
                 if (state.hoverTicks > AntiFlyConstants.HOVER_TICKS) {

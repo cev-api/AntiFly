@@ -7,6 +7,7 @@ public final class AntiFlyConstants {
     public static final double SUPPORT_LOOSE_EPSILON = 0.20;
     public static final double SUPPORT_TALL_BLOCK_DEPTH = 0.55;
     public static final double HOVER_DELTA_Y_EPSILON = 0.001;
+    public static final double HOVER_HORIZONTAL_EPSILON = 0.03;
     public static final int HOVER_TICKS = 6;
     public static final int GROUND_SPOOF_TICKS = 3;
     public static final int VOID_FALL_TICKS = 8;
@@ -29,7 +30,7 @@ public final class AntiFlyConstants {
     public static final double DEFAULT_GROUND_MOUNT_MAX = 0.750;
     public static final double BASE_WATER_MAX = 0.45;
     public static final double WATER_BUFFER = 0.10;
-    public static final double WATER_VERTICAL_MAX = 0.60;
+    public static final double WATER_VERTICAL_MAX = 0.62;
     public static final double WATER_VERTICAL_BUFFER = 0.10;
     public static final double BASE_AIR_MAX = 0.65;
     public static final double AIR_BUFFER = 0.15;

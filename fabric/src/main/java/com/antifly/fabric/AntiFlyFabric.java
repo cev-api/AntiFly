@@ -346,6 +346,9 @@ public final class AntiFlyFabric implements ModInitializer {
             }
             Vec3 vel = player.getDeltaMovement();
             double deltaY = state.lastPos != null ? Math.max(pos.y - state.lastPos.y, vel.y) : vel.y;
+            double hoverHorizontal = state.lastPos != null
+                ? horizontalDistance(state.lastPos, pos)
+                : Math.sqrt(vel.x * vel.x + vel.z * vel.z);
             double maxUp = maxAirVertical(player);
             if (!graceAir && deltaY > maxUp) {
                 Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
@@ -358,7 +361,8 @@ public final class AntiFlyFabric implements ModInitializer {
             // Ignore mid-air jump detection; we only care about prolonged hovering.
             boolean hoveringStill = !serverOnGround
                 && state.airTicks > AntiFlyConstants.MAX_AIR_TICKS
-                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON;
+                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON
+                && hoverHorizontal <= AntiFlyConstants.HOVER_HORIZONTAL_EPSILON;
             if (hoveringStill) {
                 state.hoverTicks++;
                 if (state.hoverTicks > AntiFlyConstants.HOVER_TICKS) {
