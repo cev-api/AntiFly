@@ -19,6 +19,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SET_KEYS = List.of(
         "airSpeed",
         "airVertical",
+        "airNonFallTicks",
+        "antiKickWindowTicks",
+        "antiKickMinDescent",
         "waterSpeed",
         "waterVertical",
         "groundSpeedWalking",
@@ -58,6 +61,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.YELLOW + "/antifly unexempt <player>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set airSpeed <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set airVertical <value>");
+                sender.sendMessage(ChatColor.YELLOW + "/antifly set airNonFallTicks <value>");
+                sender.sendMessage(ChatColor.YELLOW + "/antifly set antiKickWindowTicks <value>");
+                sender.sendMessage(ChatColor.YELLOW + "/antifly set antiKickMinDescent <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set waterSpeed <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set waterVertical <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set groundSpeedWalking <value>");
@@ -92,6 +98,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     + " groundMounted=" + s.groundMountedMax
                     + " air=" + s.airMax
                     + " airVertical=" + s.airVerticalMax
+                    + " airNonFallTicks=" + s.airNonFallTicks
+                    + " antiKickWindowTicks=" + s.antiKickWindowTicks
+                    + " antiKickMinDescent=" + s.antiKickMinDescent
                     + " water=" + s.waterMax
                     + " waterVertical=" + s.waterVerticalMax);
                 return true;
@@ -222,6 +231,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "groundSpeedMounted" -> String.valueOf(s.groundMountedMax);
             case "airSpeed" -> String.valueOf(s.airMax);
             case "airVertical" -> String.valueOf(s.airVerticalMax);
+            case "airNonFallTicks" -> String.valueOf(s.airNonFallTicks);
+            case "antiKickWindowTicks" -> String.valueOf(s.antiKickWindowTicks);
+            case "antiKickMinDescent" -> String.valueOf(s.antiKickMinDescent);
             case "waterSpeed" -> String.valueOf(s.waterMax);
             case "waterVertical" -> String.valueOf(s.waterVerticalMax);
             case "elytraEnabled" -> String.valueOf(s.elytraChecksEnabled);

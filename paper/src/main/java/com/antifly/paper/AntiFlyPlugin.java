@@ -76,6 +76,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "groundSpeedMounted" -> settings.groundMountedMax = value;
             case "airSpeed" -> settings.airMax = value;
             case "airVertical" -> settings.airVerticalMax = value;
+            case "airNonFallTicks" -> settings.airNonFallTicks = (int) Math.round(value);
+            case "antiKickWindowTicks" -> settings.antiKickWindowTicks = (int) Math.round(value);
+            case "antiKickMinDescent" -> settings.antiKickMinDescent = value;
             case "waterSpeed" -> settings.waterMax = value;
             case "waterVertical" -> settings.waterVerticalMax = value;
             case "elytraEnabled" -> settings.elytraChecksEnabled = value > 0.5;
@@ -97,6 +100,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("limits.groundMounted", settings.groundMountedMax);
         config.set("limits.air", settings.airMax);
         config.set("limits.airVertical", settings.airVerticalMax);
+        config.set("limits.airNonFallTicks", settings.airNonFallTicks);
+        config.set("limits.antiKickWindowTicks", settings.antiKickWindowTicks);
+        config.set("limits.antiKickMinDescent", settings.antiKickMinDescent);
         config.set("limits.water", settings.waterMax);
         config.set("limits.waterVertical", settings.waterVerticalMax);
         config.set("elytra.enabled", settings.elytraChecksEnabled);
@@ -122,10 +128,13 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("limits.ground", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX);
         config.addDefault("limits.groundWalking", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX);
         config.addDefault("limits.groundMounted", AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX);
-        config.addDefault("limits.air", AntiFlyConstants.BASE_AIR_MAX + AntiFlyConstants.AIR_BUFFER);
-        config.addDefault("limits.airVertical", AntiFlyConstants.BASE_AIR_VERTICAL_MAX + AntiFlyConstants.AIR_VERTICAL_BUFFER);
-        config.addDefault("limits.water", AntiFlyConstants.BASE_WATER_MAX + AntiFlyConstants.WATER_BUFFER);
-        config.addDefault("limits.waterVertical", AntiFlyConstants.WATER_VERTICAL_MAX + AntiFlyConstants.WATER_VERTICAL_BUFFER);
+        config.addDefault("limits.air", AntiFlyConstants.DEFAULT_AIR_MAX);
+        config.addDefault("limits.airVertical", AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX);
+        config.addDefault("limits.airNonFallTicks", AntiFlyConstants.AIR_NON_FALL_TICKS);
+        config.addDefault("limits.antiKickWindowTicks", AntiFlyConstants.ANTI_KICK_WINDOW_TICKS);
+        config.addDefault("limits.antiKickMinDescent", AntiFlyConstants.ANTI_KICK_MIN_DESCENT);
+        config.addDefault("limits.water", AntiFlyConstants.DEFAULT_WATER_MAX);
+        config.addDefault("limits.waterVertical", AntiFlyConstants.DEFAULT_WATER_VERTICAL_MAX);
         config.addDefault("elytra.enabled", true);
         config.addDefault("elytra.maxHorizontal", AntiFlyConstants.ELYTRA_MAX_HORIZONTAL);
         config.addDefault("elytra.maxUp", AntiFlyConstants.ELYTRA_MAX_UP);
@@ -144,10 +153,13 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.groundWalkMax = config.getDouble("limits.groundWalking",
             config.getDouble("limits.ground", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX));
         settings.groundMountedMax = config.getDouble("limits.groundMounted", AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX);
-        settings.airMax = config.getDouble("limits.air", AntiFlyConstants.BASE_AIR_MAX + AntiFlyConstants.AIR_BUFFER);
-        settings.airVerticalMax = config.getDouble("limits.airVertical", AntiFlyConstants.BASE_AIR_VERTICAL_MAX + AntiFlyConstants.AIR_VERTICAL_BUFFER);
-        settings.waterMax = config.getDouble("limits.water", AntiFlyConstants.BASE_WATER_MAX + AntiFlyConstants.WATER_BUFFER);
-        settings.waterVerticalMax = config.getDouble("limits.waterVertical", AntiFlyConstants.WATER_VERTICAL_MAX + AntiFlyConstants.WATER_VERTICAL_BUFFER);
+        settings.airMax = config.getDouble("limits.air", AntiFlyConstants.DEFAULT_AIR_MAX);
+        settings.airVerticalMax = config.getDouble("limits.airVertical", AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX);
+        settings.airNonFallTicks = config.getInt("limits.airNonFallTicks", AntiFlyConstants.AIR_NON_FALL_TICKS);
+        settings.antiKickWindowTicks = config.getInt("limits.antiKickWindowTicks", AntiFlyConstants.ANTI_KICK_WINDOW_TICKS);
+        settings.antiKickMinDescent = config.getDouble("limits.antiKickMinDescent", AntiFlyConstants.ANTI_KICK_MIN_DESCENT);
+        settings.waterMax = config.getDouble("limits.water", AntiFlyConstants.DEFAULT_WATER_MAX);
+        settings.waterVerticalMax = config.getDouble("limits.waterVertical", AntiFlyConstants.DEFAULT_WATER_VERTICAL_MAX);
         settings.elytraChecksEnabled = config.getBoolean("elytra.enabled", true);
         settings.elytraMaxHorizontal = config.getDouble("elytra.maxHorizontal", AntiFlyConstants.ELYTRA_MAX_HORIZONTAL);
         settings.elytraMaxUp = config.getDouble("elytra.maxUp", AntiFlyConstants.ELYTRA_MAX_UP);
@@ -181,6 +193,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double groundMountedMax;
         double airMax;
         double airVerticalMax;
+        int airNonFallTicks;
+        int antiKickWindowTicks;
+        double antiKickMinDescent;
         double waterMax;
         double waterVerticalMax;
         boolean elytraChecksEnabled;
@@ -200,6 +215,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         org.bukkit.Location lastSupport;
         org.bukkit.Location lastPos;
         int airTicks;
+        int airNonFallTicks;
+        int airSessionTicks;
+        double airSessionDescent;
         int hoverTicks;
         int voidTicks;
         int glideStallTicks;

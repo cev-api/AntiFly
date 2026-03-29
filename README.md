@@ -47,6 +47,9 @@ These commands are available in-game. Requires op or `antifly.admin` on Paper.
 /antifly unexempt <player>
 /antifly set airSpeed <value>
 /antifly set airVertical <value>
+/antifly set airNonFallTicks <value>
+/antifly set antiKickWindowTicks <value>
+/antifly set antiKickMinDescent <value>
 /antifly set waterSpeed <value>
 /antifly set waterVertical <value>
 /antifly set groundSpeedWalking <value>

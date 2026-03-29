@@ -2,6 +2,9 @@ package com.antifly.common;
 
 public final class AntiFlyConstants {
     public static final int MAX_AIR_TICKS = 12;
+    public static final int AIR_NON_FALL_TICKS = 20;
+    public static final int ANTI_KICK_WINDOW_TICKS = 40;
+    public static final double ANTI_KICK_MIN_DESCENT = 0.35;
     public static final double AIR_DESCENT_EPSILON = -0.02;
     public static final double SUPPORT_EPSILON = 0.03;
     public static final double SUPPORT_LOOSE_EPSILON = 0.20;
@@ -26,8 +29,12 @@ public final class AntiFlyConstants {
     public static final int ELYTRA_SLOWDOWN_GRACE_TICKS = 8;
     public static final double BASE_GROUND_MAX = 0.35;
     public static final double GROUND_BUFFER = 0.10;
-    public static final double DEFAULT_GROUND_WALK_MAX = 0.475;
+    public static final double DEFAULT_GROUND_WALK_MAX = 0.49;
     public static final double DEFAULT_GROUND_MOUNT_MAX = 0.750;
+    public static final double DEFAULT_AIR_MAX = 1.8;
+    public static final double DEFAULT_AIR_VERTICAL_MAX = 0.756;
+    public static final double DEFAULT_WATER_MAX = 0.55;
+    public static final double DEFAULT_WATER_VERTICAL_MAX = 0.7;
     public static final double BASE_WATER_MAX = 0.45;
     public static final double WATER_BUFFER = 0.10;
     public static final double WATER_VERTICAL_MAX = 0.62;

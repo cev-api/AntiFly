@@ -95,6 +95,9 @@ public final class AntiFlyFabric implements ModInitializer {
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly unexempt <player>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set airSpeed <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set airVertical <value>"), false);
+                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly set airNonFallTicks <value>"), false);
+                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly set antiKickWindowTicks <value>"), false);
+                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly set antiKickMinDescent <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set waterSpeed <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set waterVertical <value>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly set groundSpeedWalking <value>"), false);
@@ -131,6 +134,9 @@ public final class AntiFlyFabric implements ModInitializer {
                             + " groundMounted=" + config.groundMountedMax
                             + " air=" + config.airMax
                             + " airVertical=" + config.airVerticalMax
+                            + " airNonFallTicks=" + config.airNonFallTicks
+                            + " antiKickWindowTicks=" + config.antiKickWindowTicks
+                            + " antiKickMinDescent=" + config.antiKickMinDescent
                             + " water=" + config.waterMax
                             + " waterVertical=" + config.waterVerticalMax
                     ), false);
@@ -175,6 +181,9 @@ public final class AntiFlyFabric implements ModInitializer {
                 })
                     .then(settingNode("airSpeed"))
                     .then(settingNode("airVertical"))
+                    .then(settingNode("airNonFallTicks"))
+                    .then(settingNode("antiKickWindowTicks"))
+                    .then(settingNode("antiKickMinDescent"))
                     .then(settingNode("waterSpeed"))
                     .then(settingNode("waterVertical"))
                     .then(settingNode("groundSpeedWalking"))
@@ -249,6 +258,9 @@ public final class AntiFlyFabric implements ModInitializer {
         if (inVehicle && state.vehicleGraceTicks > 0) {
             state.vehicleGraceTicks--;
             state.vehicleAirTicks = 0;
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             state.lastPos = pos;
             return;
         }
@@ -267,6 +279,9 @@ public final class AntiFlyFabric implements ModInitializer {
         }
 
         if (isExempt(player)) {
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             updateSupport(state, trustedGround, inFluid, pos);
             state.lastPos = pos;
             state.lastServerOnGround = serverOnGround;
@@ -280,6 +295,9 @@ public final class AntiFlyFabric implements ModInitializer {
                 return;
             }
             state.airTicks++;
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             state.lastPos = pos;
             state.lastServerOnGround = serverOnGround;
             state.wasGliding = true;
@@ -374,6 +392,33 @@ public final class AntiFlyFabric implements ModInitializer {
                 }
             } else {
                 state.hoverTicks = 0;
+            }
+            if (!serverOnGround && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
+                state.airNonFallTicks++;
+                if (state.airNonFallTicks > config.airNonFallTicks) {
+                    Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
+                    rubberBand(player, state, target, "air_time", state.airNonFallTicks, config.airNonFallTicks);
+                    state.lastPos = pos;
+                    state.wasGliding = false;
+                    return;
+                }
+            } else {
+                state.airNonFallTicks = 0;
+            }
+            state.airSessionTicks++;
+            if (deltaY < 0.0) {
+                state.airSessionDescent += -deltaY;
+            }
+            if (state.airSessionTicks >= config.antiKickWindowTicks) {
+                if (state.airSessionDescent < config.antiKickMinDescent) {
+                    Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
+                    rubberBand(player, state, target, "air_antikick", state.airSessionDescent, config.antiKickMinDescent);
+                    state.lastPos = pos;
+                    state.wasGliding = false;
+                    return;
+                }
+                state.airSessionTicks = 0;
+                state.airSessionDescent = 0.0;
             }
             if (isVoidBelow(player) && !serverOnGround && !inFluid
                 && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
@@ -691,6 +736,9 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private void resetState(PlayerState state, Vec3 pos) {
         state.airTicks = 0;
+        state.airNonFallTicks = 0;
+        state.airSessionTicks = 0;
+        state.airSessionDescent = 0.0;
         state.hoverTicks = 0;
         state.voidTicks = 0;
         state.glideStallTicks = 0;
@@ -716,6 +764,9 @@ public final class AntiFlyFabric implements ModInitializer {
             state.lastGroundPos = pos;
             state.lastSupportPos = pos;
             state.airTicks = 0;
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             state.hoverTicks = 0;
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
@@ -724,6 +775,9 @@ public final class AntiFlyFabric implements ModInitializer {
         } else if (inFluid) {
             state.lastSupportPos = pos;
             state.airTicks = 0;
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             state.hoverTicks = 0;
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
@@ -738,6 +792,9 @@ public final class AntiFlyFabric implements ModInitializer {
             case "groundSpeedMounted" -> config.groundMountedMax = value;
             case "airSpeed" -> config.airMax = value;
             case "airVertical" -> config.airVerticalMax = value;
+            case "airNonFallTicks" -> config.airNonFallTicks = (int) Math.round(value);
+            case "antiKickWindowTicks" -> config.antiKickWindowTicks = (int) Math.round(value);
+            case "antiKickMinDescent" -> config.antiKickMinDescent = value;
             case "waterSpeed" -> config.waterMax = value;
             case "waterVertical" -> config.waterVerticalMax = value;
             case "elytraEnabled" -> config.elytraChecksEnabled = value > 0.5;
@@ -783,6 +840,9 @@ public final class AntiFlyFabric implements ModInitializer {
             case "groundSpeedMounted" -> String.valueOf(config.groundMountedMax);
             case "airSpeed" -> String.valueOf(config.airMax);
             case "airVertical" -> String.valueOf(config.airVerticalMax);
+            case "airNonFallTicks" -> String.valueOf(config.airNonFallTicks);
+            case "antiKickWindowTicks" -> String.valueOf(config.antiKickWindowTicks);
+            case "antiKickMinDescent" -> String.valueOf(config.antiKickMinDescent);
             case "waterSpeed" -> String.valueOf(config.waterMax);
             case "waterVertical" -> String.valueOf(config.waterVerticalMax);
             case "elytraEnabled" -> String.valueOf(config.elytraChecksEnabled);
@@ -802,6 +862,9 @@ public final class AntiFlyFabric implements ModInitializer {
     private static final java.util.List<String> SET_KEYS = java.util.List.of(
         "airSpeed",
         "airVertical",
+        "airNonFallTicks",
+        "antiKickWindowTicks",
+        "antiKickMinDescent",
         "waterSpeed",
         "waterVertical",
         "groundSpeedWalking",
@@ -827,10 +890,13 @@ public final class AntiFlyFabric implements ModInitializer {
         boolean enabled = true;
         double groundWalkMax = AntiFlyConstants.DEFAULT_GROUND_WALK_MAX;
         double groundMountedMax = AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX;
-        double airMax = AntiFlyConstants.BASE_AIR_MAX + AntiFlyConstants.AIR_BUFFER;
-        double airVerticalMax = AntiFlyConstants.BASE_AIR_VERTICAL_MAX + AntiFlyConstants.AIR_VERTICAL_BUFFER;
-        double waterMax = AntiFlyConstants.BASE_WATER_MAX + AntiFlyConstants.WATER_BUFFER;
-        double waterVerticalMax = AntiFlyConstants.WATER_VERTICAL_MAX + AntiFlyConstants.WATER_VERTICAL_BUFFER;
+        double airMax = AntiFlyConstants.DEFAULT_AIR_MAX;
+        double airVerticalMax = AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX;
+        int airNonFallTicks = AntiFlyConstants.AIR_NON_FALL_TICKS;
+        int antiKickWindowTicks = AntiFlyConstants.ANTI_KICK_WINDOW_TICKS;
+        double antiKickMinDescent = AntiFlyConstants.ANTI_KICK_MIN_DESCENT;
+        double waterMax = AntiFlyConstants.DEFAULT_WATER_MAX;
+        double waterVerticalMax = AntiFlyConstants.DEFAULT_WATER_VERTICAL_MAX;
         boolean elytraChecksEnabled = true;
         double elytraMaxHorizontal = AntiFlyConstants.ELYTRA_MAX_HORIZONTAL;
         double elytraMaxUp = AntiFlyConstants.ELYTRA_MAX_UP;
@@ -881,6 +947,9 @@ public final class AntiFlyFabric implements ModInitializer {
         Vec3 lastSupportPos;
         Vec3 lastPos;
         int airTicks;
+        int airNonFallTicks;
+        int airSessionTicks;
+        double airSessionDescent;
         int hoverTicks;
         int voidTicks;
         int glideStallTicks;

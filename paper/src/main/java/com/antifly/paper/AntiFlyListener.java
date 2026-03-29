@@ -95,6 +95,9 @@ public final class AntiFlyListener implements Listener {
         if (inVehicle && state.vehicleGraceTicks > 0) {
             state.vehicleGraceTicks--;
             state.vehicleAirTicks = 0;
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             state.lastPos = to.clone();
             return;
         }
@@ -112,6 +115,9 @@ public final class AntiFlyListener implements Listener {
         }
 
         if (isExempt(player)) {
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             updateSupport(state, trustedGround, inFluid, to);
             state.lastPos = to.clone();
             state.lastServerOnGround = serverOnGround;
@@ -125,6 +131,9 @@ public final class AntiFlyListener implements Listener {
                 return;
             }
             state.airTicks++;
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             state.lastPos = to.clone();
             state.lastServerOnGround = serverOnGround;
             state.wasGliding = true;
@@ -203,6 +212,31 @@ public final class AntiFlyListener implements Listener {
                 }
             } else {
                 state.hoverTicks = 0;
+            }
+            if (!serverOnGround && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
+                state.airNonFallTicks++;
+                if (state.airNonFallTicks > plugin.getSettings().airNonFallTicks) {
+                    Location target = state.lastSupport != null ? state.lastSupport : from;
+                    rubberBand(player, state, target, "air_time", state.airNonFallTicks, plugin.getSettings().airNonFallTicks);
+                    state.wasGliding = false;
+                    return;
+                }
+            } else {
+                state.airNonFallTicks = 0;
+            }
+            state.airSessionTicks++;
+            if (deltaY < 0.0) {
+                state.airSessionDescent += -deltaY;
+            }
+            if (state.airSessionTicks >= plugin.getSettings().antiKickWindowTicks) {
+                if (state.airSessionDescent < plugin.getSettings().antiKickMinDescent) {
+                    Location target = state.lastSupport != null ? state.lastSupport : from;
+                    rubberBand(player, state, target, "air_antikick", state.airSessionDescent, plugin.getSettings().antiKickMinDescent);
+                    state.wasGliding = false;
+                    return;
+                }
+                state.airSessionTicks = 0;
+                state.airSessionDescent = 0.0;
             }
             if (isVoidBelow(player, to) && !serverOnGround && !inFluid
                 && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
@@ -487,6 +521,9 @@ public final class AntiFlyListener implements Listener {
 
     private void resetState(AntiFlyPlugin.PlayerState state, Location loc) {
         state.airTicks = 0;
+        state.airNonFallTicks = 0;
+        state.airSessionTicks = 0;
+        state.airSessionDescent = 0.0;
         state.hoverTicks = 0;
         state.voidTicks = 0;
         state.glideStallTicks = 0;
@@ -512,6 +549,9 @@ public final class AntiFlyListener implements Listener {
             state.lastGround = loc.clone();
             state.lastSupport = loc.clone();
             state.airTicks = 0;
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             state.hoverTicks = 0;
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
@@ -520,6 +560,9 @@ public final class AntiFlyListener implements Listener {
         } else if (inFluid) {
             state.lastSupport = loc.clone();
             state.airTicks = 0;
+            state.airNonFallTicks = 0;
+            state.airSessionTicks = 0;
+            state.airSessionDescent = 0.0;
             state.hoverTicks = 0;
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
@@ -549,6 +592,9 @@ public final class AntiFlyListener implements Listener {
         player.teleport(target);
         player.setVelocity(new Vector(0, 0, 0));
         state.airTicks = 0;
+        state.airNonFallTicks = 0;
+        state.airSessionTicks = 0;
+        state.airSessionDescent = 0.0;
         state.lastPos = target.clone();
         state.lastServerOnGround = hasGroundSupport(player, target);
     }
