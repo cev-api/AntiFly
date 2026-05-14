@@ -1,4 +1,7 @@
 # AntiFly
+
+![LOGO](https://i.imgur.com/WQqocWS.png)
+
 Lightweight Paper + Fabric **flight-control plugin** by CevAPI.
 
 AntiFly is **not a full anti-cheat**.  
@@ -8,7 +11,7 @@ Only the following are checked:
 - Unauthorized flight
 - Excessive movement speed (ground, air, water)
 - Elytra speed, stall, and slowdown behavior (optional)
-- Vehicle flight while preserving normal mount jumping behavior
+- Vehicle flight while preserving normal mount behavior, downhill movement, and genuine falling
 
 Nothing else is monitored or restricted.  
 No combat checks. No scaffolding checks. No packet analysis. No behavior profiling.
@@ -36,7 +39,11 @@ Fabric:
 - Drop the Fabric jar into `mods/`
 
 ## Ops Commands
-These commands are available in-game. Requires op or `antifly.admin` on Paper.
+These commands are available in-game. Requires op/admin.
+
+- Paper: requires op or `antifly.admin`
+- Fabric: requires moderator-level command permission
+- Non-ops/non-admins cannot use or tab-complete AntiFly commands.
 
 ```
 /antifly enable
@@ -54,6 +61,9 @@ These commands are available in-game. Requires op or `antifly.admin` on Paper.
 /antifly set waterVertical <value>
 /antifly set groundSpeedWalking <value>
 /antifly set groundSpeedMounted <value>
+/antifly set vehicleFallMinDescent <value>
+/antifly set vehicleFallMaxHorizontal <value>
+/antifly set vehicleFallTicksMax <value>
 /antifly set elytraEnabled <value>
 /antifly set elytraMaxHorizontal <value>
 /antifly set elytraMaxUp <value>
@@ -70,12 +80,24 @@ These commands are available in-game. Requires op or `antifly.admin` on Paper.
 Notes:
 - `/antifly set` shows all current settings.
 - `/antifly set <key>` shows the current value for that key.
+- `/antifly unexempt <tab>` suggests only currently exempt players.
 - Default ground limits:
-  - `groundSpeedWalking=0.475`
+  - `groundSpeedWalking=0.49`
   - `groundSpeedMounted=0.750`
+- Vehicle fall tuning defaults:
+  - `vehicleFallMinDescent=-0.04`
+  - `vehicleFallMaxHorizontal=0.40`
+  - `vehicleFallTicksMax=60`
 - Legacy `groundSpeed` remains accepted as an alias of `groundSpeedWalking`.
 - Fence/wall top collisions are treated as valid ground support.
 - Horse and other mount jumps have extra vehicle-air grace before flight is blocked.
+
+## Modrinth Version Check
+AntiFly can compare the running version against Modrinth project `antiflight` and alert ops/admins if the server is outdated.
+
+- API used: `https://api.modrinth.com/v2/project/<slug>/version?featured=true&include_changelog=false`
+- `/antifly status` performs a live check.
+- A startup check also runs and warns ops/admins when outdated.
 
 ## Config
 - Paper: `plugins/AntiFly/config.yml`
