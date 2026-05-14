@@ -95,6 +95,8 @@ public final class AntiFlyListener implements Listener {
         if (inVehicle && state.vehicleGraceTicks > 0) {
             state.vehicleGraceTicks--;
             state.vehicleAirTicks = 0;
+            state.vehicleFallTicks = 0;
+            state.vehicleFallHorizontalDistance = 0.0;
             state.airNonFallTicks = 0;
             state.airSessionTicks = 0;
             state.airSessionDescent = 0.0;
@@ -103,6 +105,26 @@ public final class AntiFlyListener implements Listener {
         }
 
         if (inVehicle && !serverOnGround && !inFluid) {
+            Vector vel = player.getVelocity();
+            double deltaY = to.getY() - from.getY();
+            double horizontal = Math.max(horizontalDistance(from, to), Math.sqrt(vel.getX() * vel.getX() + vel.getZ() * vel.getZ()));
+            if (isVehicleNaturalFall(deltaY, vel.getY(), horizontal)) {
+                state.vehicleFallTicks++;
+                state.vehicleFallHorizontalDistance += horizontal;
+                state.vehicleAirTicks = 0;
+                double horizontalBudget = plugin.getSettings().vehicleFallMaxHorizontal
+                    * Math.max(1, plugin.getSettings().vehicleFallTicksMax);
+                if (state.vehicleFallTicks <= plugin.getSettings().vehicleFallTicksMax
+                    && state.vehicleFallHorizontalDistance <= horizontalBudget) {
+                    state.lastPos = to.clone();
+                    state.lastServerOnGround = false;
+                    return;
+                }
+            } else {
+                state.vehicleFallTicks = 0;
+                state.vehicleFallHorizontalDistance = 0.0;
+            }
+
             state.vehicleAirTicks++;
             if (state.vehicleAirTicks > vehicleAirGraceTicks(player.getVehicle())) {
                 Location target = state.lastSupport != null ? state.lastSupport : to;
@@ -112,6 +134,8 @@ public final class AntiFlyListener implements Listener {
             }
         } else {
             state.vehicleAirTicks = 0;
+            state.vehicleFallTicks = 0;
+            state.vehicleFallHorizontalDistance = 0.0;
         }
 
         if (isExempt(player)) {
@@ -511,6 +535,11 @@ public final class AntiFlyListener implements Listener {
         return AntiFlyConstants.VEHICLE_AIR_GRACE_TICKS;
     }
 
+    private boolean isVehicleNaturalFall(double deltaY, double velocityY, double horizontal) {
+        return deltaY <= plugin.getSettings().vehicleFallMinDescent
+            && horizontal <= plugin.getSettings().vehicleFallMaxHorizontal;
+    }
+
     private void rubberBandVehicle(Player player, AntiFlyPlugin.PlayerState state, Location target, String reason) {
         if (player.getVehicle() != null) {
             player.getVehicle().setVelocity(new Vector(0, 0, 0));
@@ -535,6 +564,8 @@ public final class AntiFlyListener implements Listener {
         state.lastGlideHorizontal = 0.0;
         state.vehicleGraceTicks = 0;
         state.vehicleAirTicks = 0;
+        state.vehicleFallTicks = 0;
+        state.vehicleFallHorizontalDistance = 0.0;
         state.wasInVehicle = false;
         if (loc != null) {
             state.lastGround = loc.clone();
@@ -556,6 +587,8 @@ public final class AntiFlyListener implements Listener {
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
             state.vehicleAirTicks = 0;
+            state.vehicleFallTicks = 0;
+            state.vehicleFallHorizontalDistance = 0.0;
             state.lastServerOnGround = true;
         } else if (inFluid) {
             state.lastSupport = loc.clone();
@@ -567,6 +600,8 @@ public final class AntiFlyListener implements Listener {
             state.voidTicks = 0;
             state.groundSpoofTicks = 0;
             state.vehicleAirTicks = 0;
+            state.vehicleFallTicks = 0;
+            state.vehicleFallHorizontalDistance = 0.0;
             state.lastServerOnGround = false;
         }
     }

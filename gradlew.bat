@@ -55,6 +55,21 @@ goto fail
 
 :findJavaFromJavaHome
 set JAVA_HOME=%JAVA_HOME:"=%
+
+@rem Gradle 8.10.x can fail under JDK 25 (class file major version 69).
+@rem If JAVA_HOME points to JDK 25, prefer an installed JDK 21 for the wrapper runtime.
+if not "%JAVA_HOME:jdk-25=%"=="%JAVA_HOME%" (
+    for /f "delims=" %%d in ('dir /b /ad "C:\Program Files\Eclipse Adoptium\jdk-21*" 2^>NUL') do (
+        set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\%%d"
+        goto javaHomeSelected
+    )
+    for /f "delims=" %%d in ('dir /b /ad "C:\Program Files\Java\jdk-21*" 2^>NUL') do (
+        set "JAVA_HOME=C:\Program Files\Java\%%d"
+        goto javaHomeSelected
+    )
+)
+
+:javaHomeSelected
 set JAVA_EXE=%JAVA_HOME%/bin/java.exe
 
 if exist "%JAVA_EXE%" goto execute

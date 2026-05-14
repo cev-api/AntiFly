@@ -2,10 +2,11 @@ package com.antifly.paper;
 
 import com.antifly.common.AttemptTracker;
 import com.antifly.common.AntiFlyConstants;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Set;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
@@ -15,6 +16,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
     private final AttemptTracker attemptTracker = new AttemptTracker();
     private final Map<UUID, PlayerState> states = new ConcurrentHashMap<>();
     private final Set<UUID> exempt = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> notifiedOutdatedOps = new HashSet<>();
     private final Settings settings = new Settings();
     private boolean antiFlyEnabled = true;
 
@@ -24,6 +26,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new AntiFlyListener(this), this);
         getCommand("antifly").setExecutor(new AntiFlyCommand(this));
         getCommand("antifly").setTabCompleter(new AntiFlyCommand(this));
+        checkModrinthVersionAndAlertOps();
     }
 
     @Override
@@ -54,6 +57,34 @@ public final class AntiFlyPlugin extends JavaPlugin {
         return exempt.contains(player.getUniqueId());
     }
 
+    Set<UUID> getExemptPlayers() {
+        return Set.copyOf(exempt);
+    }
+
+    boolean canUseAdminCommands(org.bukkit.command.CommandSender sender) {
+        return !(sender instanceof Player player) || player.isOp() || sender.hasPermission("antifly.admin");
+    }
+
+    void checkModrinthVersion(org.bukkit.command.CommandSender sender) {
+        String currentVersion = getDescription().getVersion();
+        String slug = settings.modrinthProjectSlug;
+        sender.sendMessage(org.bukkit.ChatColor.GRAY + "Checking Modrinth for " + slug + " ...");
+        ModrinthVersionChecker.checkLatest(this, slug, result -> {
+            if (!result.ok) {
+                sender.sendMessage(org.bukkit.ChatColor.RED + "Modrinth check failed: " + result.error);
+                return;
+            }
+            int cmp = ModrinthVersionChecker.compareVersions(currentVersion, result.latestVersion);
+            if (cmp < 0) {
+                sender.sendMessage(org.bukkit.ChatColor.RED + "Outdated: running " + currentVersion + ", Modrinth has " + result.latestVersion);
+            } else if (cmp > 0) {
+                sender.sendMessage(org.bukkit.ChatColor.YELLOW + "Ahead of Modrinth: running " + currentVersion + ", latest hosted is " + result.latestVersion);
+            } else {
+                sender.sendMessage(org.bukkit.ChatColor.GREEN + "Up to date with Modrinth: " + currentVersion);
+            }
+        });
+    }
+
     void addExempt(UUID uuid) {
         exempt.add(uuid);
         persistExempt();
@@ -74,6 +105,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         switch (key) {
             case "groundSpeed", "groundSpeedWalking" -> settings.groundWalkMax = value;
             case "groundSpeedMounted" -> settings.groundMountedMax = value;
+            case "vehicleFallMinDescent" -> settings.vehicleFallMinDescent = value;
+            case "vehicleFallMaxHorizontal" -> settings.vehicleFallMaxHorizontal = value;
+            case "vehicleFallTicksMax" -> settings.vehicleFallTicksMax = (int) Math.round(value);
             case "airSpeed" -> settings.airMax = value;
             case "airVertical" -> settings.airVerticalMax = value;
             case "airNonFallTicks" -> settings.airNonFallTicks = (int) Math.round(value);
@@ -98,6 +132,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("limits.ground", settings.groundWalkMax);
         config.set("limits.groundWalking", settings.groundWalkMax);
         config.set("limits.groundMounted", settings.groundMountedMax);
+        config.set("vehicle.fallMinDescent", settings.vehicleFallMinDescent);
+        config.set("vehicle.fallMaxHorizontal", settings.vehicleFallMaxHorizontal);
+        config.set("vehicle.fallTicksMax", settings.vehicleFallTicksMax);
         config.set("limits.air", settings.airMax);
         config.set("limits.airVertical", settings.airVerticalMax);
         config.set("limits.airNonFallTicks", settings.airNonFallTicks);
@@ -128,6 +165,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("limits.ground", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX);
         config.addDefault("limits.groundWalking", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX);
         config.addDefault("limits.groundMounted", AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX);
+        config.addDefault("vehicle.fallMinDescent", AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT);
+        config.addDefault("vehicle.fallMaxHorizontal", AntiFlyConstants.VEHICLE_FALL_MAX_HORIZONTAL);
+        config.addDefault("vehicle.fallTicksMax", AntiFlyConstants.VEHICLE_FALL_TICKS_MAX);
         config.addDefault("limits.air", AntiFlyConstants.DEFAULT_AIR_MAX);
         config.addDefault("limits.airVertical", AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX);
         config.addDefault("limits.airNonFallTicks", AntiFlyConstants.AIR_NON_FALL_TICKS);
@@ -145,6 +185,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("elytra.slowdownMinSpeed", AntiFlyConstants.ELYTRA_SLOWDOWN_MIN_SPEED);
         config.addDefault("elytra.slowdownMinScale", AntiFlyConstants.ELYTRA_SLOWDOWN_MIN_SCALE);
         config.addDefault("elytra.slowdownGraceTicks", AntiFlyConstants.ELYTRA_SLOWDOWN_GRACE_TICKS);
+        config.addDefault("modrinth.projectSlug", "antiflight");
         config.addDefault("exempt", java.util.List.of());
         config.options().copyDefaults(true);
         saveConfig();
@@ -153,6 +194,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.groundWalkMax = config.getDouble("limits.groundWalking",
             config.getDouble("limits.ground", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX));
         settings.groundMountedMax = config.getDouble("limits.groundMounted", AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX);
+        settings.vehicleFallMinDescent = config.getDouble("vehicle.fallMinDescent", AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT);
+        settings.vehicleFallMaxHorizontal = config.getDouble("vehicle.fallMaxHorizontal", AntiFlyConstants.VEHICLE_FALL_MAX_HORIZONTAL);
+        settings.vehicleFallTicksMax = config.getInt("vehicle.fallTicksMax", AntiFlyConstants.VEHICLE_FALL_TICKS_MAX);
         settings.airMax = config.getDouble("limits.air", AntiFlyConstants.DEFAULT_AIR_MAX);
         settings.airVerticalMax = config.getDouble("limits.airVertical", AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX);
         settings.airNonFallTicks = config.getInt("limits.airNonFallTicks", AntiFlyConstants.AIR_NON_FALL_TICKS);
@@ -170,6 +214,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.elytraSlowdownMinSpeed = config.getDouble("elytra.slowdownMinSpeed", AntiFlyConstants.ELYTRA_SLOWDOWN_MIN_SPEED);
         settings.elytraSlowdownMinScale = config.getDouble("elytra.slowdownMinScale", AntiFlyConstants.ELYTRA_SLOWDOWN_MIN_SCALE);
         settings.elytraSlowdownGraceTicks = config.getInt("elytra.slowdownGraceTicks", AntiFlyConstants.ELYTRA_SLOWDOWN_GRACE_TICKS);
+        settings.modrinthProjectSlug = config.getString("modrinth.projectSlug", "antiflight");
 
         exempt.clear();
         for (String entry : config.getStringList("exempt")) {
@@ -188,9 +233,33 @@ public final class AntiFlyPlugin extends JavaPlugin {
         saveConfig();
     }
 
+    private void checkModrinthVersionAndAlertOps() {
+        String currentVersion = getDescription().getVersion();
+        ModrinthVersionChecker.checkLatest(this, settings.modrinthProjectSlug, result -> {
+            if (!result.ok) {
+                getLogger().warning("Modrinth version check failed: " + result.error);
+                return;
+            }
+            int cmp = ModrinthVersionChecker.compareVersions(currentVersion, result.latestVersion);
+            if (cmp >= 0) {
+                return;
+            }
+            String msg = "AntiFly is outdated: running " + currentVersion + ", Modrinth has " + result.latestVersion;
+            getLogger().warning(msg);
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if ((player.isOp() || player.hasPermission("antifly.admin")) && notifiedOutdatedOps.add(player.getUniqueId())) {
+                    player.sendMessage(org.bukkit.ChatColor.RED + msg);
+                }
+            }
+        });
+    }
+
     static final class Settings {
         double groundWalkMax;
         double groundMountedMax;
+        double vehicleFallMinDescent;
+        double vehicleFallMaxHorizontal;
+        int vehicleFallTicksMax;
         double airMax;
         double airVerticalMax;
         int airNonFallTicks;
@@ -208,6 +277,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double elytraSlowdownMinSpeed;
         double elytraSlowdownMinScale;
         int elytraSlowdownGraceTicks;
+        String modrinthProjectSlug;
     }
 
     static final class PlayerState {
@@ -229,6 +299,8 @@ public final class AntiFlyPlugin extends JavaPlugin {
         boolean lastServerOnGround;
         int vehicleGraceTicks;
         int vehicleAirTicks;
+        int vehicleFallTicks;
+        double vehicleFallHorizontalDistance;
         boolean wasInVehicle;
         long lastRubberBandAtMs;
     }

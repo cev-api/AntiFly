@@ -1,12 +1,15 @@
 package com.antifly.paper;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -26,6 +29,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         "waterVertical",
         "groundSpeedWalking",
         "groundSpeedMounted",
+        "vehicleFallMinDescent",
+        "vehicleFallMaxHorizontal",
+        "vehicleFallTicksMax",
         "elytraEnabled",
         "elytraMaxHorizontal",
         "elytraMaxUp",
@@ -46,6 +52,10 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!plugin.canUseAdminCommands(sender)) {
+            return true;
+        }
+
         if (args.length == 0) {
             sender.sendMessage(ChatColor.YELLOW + "Usage: /antifly <enable|disable|status|exempt|unexempt|set|reset>");
             return true;
@@ -68,6 +78,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set waterVertical <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set groundSpeedWalking <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set groundSpeedMounted <value>");
+                sender.sendMessage(ChatColor.YELLOW + "/antifly set vehicleFallMinDescent <value>");
+                sender.sendMessage(ChatColor.YELLOW + "/antifly set vehicleFallMaxHorizontal <value>");
+                sender.sendMessage(ChatColor.YELLOW + "/antifly set vehicleFallTicksMax <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set elytraEnabled <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set elytraMaxHorizontal <value>");
                 sender.sendMessage(ChatColor.YELLOW + "/antifly set elytraMaxUp <value>");
@@ -96,6 +109,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.AQUA + "AntiFly: " + (plugin.isAntiFlyEnabled() ? "enabled" : "disabled"));
                 sender.sendMessage(ChatColor.GRAY + "Limits: groundWalking=" + s.groundWalkMax
                     + " groundMounted=" + s.groundMountedMax
+                    + " vehicleFallMinDescent=" + s.vehicleFallMinDescent
+                    + " vehicleFallMaxHorizontal=" + s.vehicleFallMaxHorizontal
+                    + " vehicleFallTicksMax=" + s.vehicleFallTicksMax
                     + " air=" + s.airMax
                     + " airVertical=" + s.airVerticalMax
                     + " airNonFallTicks=" + s.airNonFallTicks
@@ -103,6 +119,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     + " antiKickMinDescent=" + s.antiKickMinDescent
                     + " water=" + s.waterMax
                     + " waterVertical=" + s.waterVerticalMax);
+                plugin.checkModrinthVersion(sender);
                 return true;
             }
             case "exempt" -> {
@@ -194,10 +211,16 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (!plugin.canUseAdminCommands(sender)) {
+            return List.of();
+        }
         if (args.length == 1) {
             return filter(ROOT, args[0]);
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("exempt") || args[0].equalsIgnoreCase("unexempt") || args[0].equalsIgnoreCase("reset"))) {
+            if (args[0].equalsIgnoreCase("unexempt")) {
+                return filter(exemptNames(), args[1]);
+            }
             return null;
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
@@ -225,10 +248,29 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         return Bukkit.getOfflinePlayer(name);
     }
 
+    private List<String> exemptNames() {
+        Set<String> names = new LinkedHashSet<>();
+        for (UUID uuid : plugin.getExemptPlayers()) {
+            Player online = Bukkit.getPlayer(uuid);
+            if (online != null && online.getName() != null && !online.getName().isBlank()) {
+                names.add(online.getName());
+                continue;
+            }
+            OfflinePlayer offline = Bukkit.getOfflinePlayer(uuid);
+            if (offline.getName() != null && !offline.getName().isBlank()) {
+                names.add(offline.getName());
+            }
+        }
+        return List.copyOf(names);
+    }
+
     private String formatSettingValue(AntiFlyPlugin.Settings s, String key) {
         return switch (key) {
             case "groundSpeed", "groundSpeedWalking" -> String.valueOf(s.groundWalkMax);
             case "groundSpeedMounted" -> String.valueOf(s.groundMountedMax);
+            case "vehicleFallMinDescent" -> String.valueOf(s.vehicleFallMinDescent);
+            case "vehicleFallMaxHorizontal" -> String.valueOf(s.vehicleFallMaxHorizontal);
+            case "vehicleFallTicksMax" -> String.valueOf(s.vehicleFallTicksMax);
             case "airSpeed" -> String.valueOf(s.airMax);
             case "airVertical" -> String.valueOf(s.airVerticalMax);
             case "airNonFallTicks" -> String.valueOf(s.airNonFallTicks);
