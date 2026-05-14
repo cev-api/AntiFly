@@ -8,9 +8,19 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -52,6 +62,9 @@ public final class AntiFlyFabric implements ModInitializer {
     public static final String MOD_ID = "antifly";
     private static final long LOG_COOLDOWN_MS = 500;
     private static final Logger LOGGER = LoggerFactory.getLogger("AntiFly");
+    private static final Pattern VERSION_NUMBER_PATTERN = Pattern.compile("\"version_number\"\\s*:\\s*\"([^\"]+)\"");
+    private static final Pattern DATE_PUBLISHED_PATTERN = Pattern.compile("\"date_published\"\\s*:\\s*\"([^\"]+)\"");
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     private final AttemptTracker attemptTracker = new AttemptTracker();
     private final Map<UUID, PlayerState> states = new ConcurrentHashMap<>();
@@ -146,6 +159,7 @@ public final class AntiFlyFabric implements ModInitializer {
                             + " water=" + config.waterMax
                             + " waterVertical=" + config.waterVerticalMax
                     ), false);
+                    checkModrinthVersion(ctx.getSource());
                     return 1;
                 }))
                 .then(Commands.literal("exempt")
@@ -209,7 +223,16 @@ public final class AntiFlyFabric implements ModInitializer {
                     .then(settingNode("elytraSlowdownGraceTicks")))
             );
         });
+
+        ServerTickEvents.START_SERVER_TICK.register(server -> {
+            if (!modrinthCheckedOnStartup) {
+                modrinthCheckedOnStartup = true;
+                checkModrinthVersionAndAlertOps(server);
+            }
+        });
     }
+
+    private volatile boolean modrinthCheckedOnStartup = false;
 
     private void handlePlayerTick(ServerPlayer player) {
         PlayerState state = states.computeIfAbsent(player.getUUID(), ignored -> new PlayerState());
@@ -939,6 +962,155 @@ public final class AntiFlyFabric implements ModInitializer {
         config.save();
     }
 
+    private void checkModrinthVersion(net.minecraft.commands.CommandSourceStack source) {
+        String currentVersion = FabricLoader.getInstance()
+            .getModContainer(MOD_ID)
+            .map(mc -> mc.getMetadata().getVersion().getFriendlyString())
+            .orElse("unknown");
+        source.sendSuccess(() -> Component.literal("Checking Modrinth for " + config.modrinthProjectSlug + " ..."), false);
+        fetchLatestModrinthVersion(config.modrinthProjectSlug).thenAccept(result -> {
+            Runnable send = () -> {
+                if (!result.ok) {
+                    source.sendFailure(Component.literal("Modrinth check failed: " + result.error));
+                    return;
+                }
+                int cmp = compareVersions(currentVersion, result.latestVersion);
+                if (cmp < 0) {
+                    source.sendSuccess(() -> Component.literal("Outdated: running " + currentVersion + ", Modrinth has " + result.latestVersion), false);
+                } else if (cmp > 0) {
+                    source.sendSuccess(() -> Component.literal("Ahead of Modrinth: running " + currentVersion + ", latest hosted is " + result.latestVersion), false);
+                } else {
+                    source.sendSuccess(() -> Component.literal("Up to date with Modrinth: " + currentVersion), false);
+                }
+            };
+            if (source.getServer() != null) {
+                source.getServer().execute(send);
+            } else {
+                send.run();
+            }
+        });
+    }
+
+    private void checkModrinthVersionAndAlertOps(net.minecraft.server.MinecraftServer server) {
+        String currentVersion = FabricLoader.getInstance()
+            .getModContainer(MOD_ID)
+            .map(mc -> mc.getMetadata().getVersion().getFriendlyString())
+            .orElse("unknown");
+        fetchLatestModrinthVersion(config.modrinthProjectSlug).thenAccept(result -> server.execute(() -> {
+            if (!result.ok) {
+                LOGGER.warn("Modrinth version check failed: {}", result.error);
+                return;
+            }
+            int cmp = compareVersions(currentVersion, result.latestVersion);
+            if (cmp >= 0) {
+                return;
+            }
+            String msg = "AntiFly is outdated: running " + currentVersion + ", Modrinth has " + result.latestVersion;
+            LOGGER.warn(msg);
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                if (player.createCommandSourceStack().permissions().hasPermission(Permissions.COMMANDS_MODERATOR)) {
+                    player.sendSystemMessage(Component.literal(msg));
+                }
+            }
+        }));
+    }
+
+    private CompletableFuture<VersionResult> fetchLatestModrinthVersion(String projectSlug) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String encodedSlug = URLEncoder.encode(projectSlug, StandardCharsets.UTF_8);
+                URI uri = URI.create("https://api.modrinth.com/v2/project/" + encodedSlug + "/version?featured=true&include_changelog=false");
+                HttpRequest request = HttpRequest.newBuilder(uri)
+                    .GET()
+                    .timeout(Duration.ofSeconds(8))
+                    .header("User-Agent", "AntiFly/" + MOD_ID + " (version-check)")
+                    .build();
+                HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                if (response.statusCode() != 200) {
+                    return VersionResult.error("HTTP " + response.statusCode());
+                }
+                return parseLatestVersion(response.body());
+            } catch (IOException | InterruptedException ex) {
+                if (ex instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                String error = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+                return VersionResult.error(error);
+            } catch (RuntimeException ex) {
+                String error = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+                return VersionResult.error(error);
+            }
+        });
+    }
+
+    private VersionResult parseLatestVersion(String body) {
+        Matcher versionMatcher = VERSION_NUMBER_PATTERN.matcher(body);
+        Matcher dateMatcher = DATE_PUBLISHED_PATTERN.matcher(body);
+        String latestVersion = null;
+        String latestDate = "";
+        while (versionMatcher.find()) {
+            String version = versionMatcher.group(1);
+            String date = dateMatcher.find() ? dateMatcher.group(1) : "";
+            if (latestVersion == null || date.compareTo(latestDate) > 0) {
+                latestVersion = version;
+                latestDate = date;
+            }
+        }
+        if (latestVersion == null) {
+            return VersionResult.error("No versions found on Modrinth");
+        }
+        return VersionResult.ok(latestVersion);
+    }
+
+    private int compareVersions(String local, String remote) {
+        String[] localParts = local.split("[^A-Za-z0-9]+");
+        String[] remoteParts = remote.split("[^A-Za-z0-9]+");
+        int len = Math.max(localParts.length, remoteParts.length);
+        for (int i = 0; i < len; i++) {
+            String a = i < localParts.length ? localParts[i] : "0";
+            String b = i < remoteParts.length ? remoteParts[i] : "0";
+            int cmp;
+            if (isDigits(a) && isDigits(b)) {
+                cmp = Integer.compare(Integer.parseInt(a), Integer.parseInt(b));
+            } else {
+                cmp = a.compareToIgnoreCase(b);
+            }
+            if (cmp != 0) {
+                return cmp;
+            }
+        }
+        return 0;
+    }
+
+    private boolean isDigits(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            if (!Character.isDigit(s.charAt(i))) {
+                return false;
+            }
+        }
+        return !s.isEmpty();
+    }
+
+    private static final class VersionResult {
+        final boolean ok;
+        final String latestVersion;
+        final String error;
+
+        private VersionResult(boolean ok, String latestVersion, String error) {
+            this.ok = ok;
+            this.latestVersion = latestVersion;
+            this.error = error;
+        }
+
+        static VersionResult ok(String latestVersion) {
+            return new VersionResult(true, latestVersion, null);
+        }
+
+        static VersionResult error(String error) {
+            return new VersionResult(false, null, error);
+        }
+    }
+
     private static final class AntiFlyConfig {
         boolean enabled = true;
         double groundWalkMax = AntiFlyConstants.DEFAULT_GROUND_WALK_MAX;
@@ -946,6 +1118,7 @@ public final class AntiFlyFabric implements ModInitializer {
         double vehicleFallMinDescent = AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT;
         double vehicleFallMaxHorizontal = AntiFlyConstants.VEHICLE_FALL_MAX_HORIZONTAL;
         int vehicleFallTicksMax = AntiFlyConstants.VEHICLE_FALL_TICKS_MAX;
+        String modrinthProjectSlug = "antiflight";
         double airMax = AntiFlyConstants.DEFAULT_AIR_MAX;
         double airVerticalMax = AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX;
         int airNonFallTicks = AntiFlyConstants.AIR_NON_FALL_TICKS;
