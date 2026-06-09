@@ -1,0 +1,53 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.14.10'
+}
+
+base {
+    archivesName = 'AntiFly-fabric-26.1.2'
+}
+
+def commonProject = project(':common')
+
+dependencies {
+    minecraft "com.mojang:minecraft:${fabric2612_minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${fabric2612_loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${fabric2612_api_version}"
+    implementation commonProject
+}
+
+tasks.processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', project.fabric2612_minecraft_version
+    inputs.property 'loader_version', project.fabric2612_loader_version
+    filteringCharset = 'UTF-8'
+    filesMatching('fabric.mod.json') {
+        expand(
+            version: project.version,
+            fabric_minecraft_version: project.fabric2612_minecraft_version,
+            fabric_loader_version: project.fabric2612_loader_version
+        )
+    }
+}
+
+tasks.named('jar').configure {
+    dependsOn(commonProject.tasks.named('classes'))
+    from(commonProject.sourceSets.main.output)
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+}
+
+loom {
+    enableModProvidedJavadoc.set(false)
+    interfaceInjection {
+        enableDependencyInterfaceInjection.set(false)
+    }
+}

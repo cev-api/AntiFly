@@ -39,6 +39,7 @@ Core:
 - `/antifly help`
 - `/antifly exempt <player>`
 - `/antifly unexempt <player>`
+- `/antifly disabledworlds <worldName> <true|false>`
 - `/antifly set`
 - `/antifly set <key>`
 - `/antifly set <key> <value>`
@@ -57,6 +58,7 @@ Debug:
 ### Fabric
 Requires moderator-level command permission.
 - `/antifly` command family is available with equivalent core controls.
+- `/antifly disabledworlds <worldName> <true|false>`
 
 ## Primary settings keys (Paper)
 - `groundWalkMax`
@@ -102,6 +104,12 @@ Legacy aliases kept for backward compatibility:
 ## Config locations
 - Paper: `plugins/AntiFly/config.yml`
 - Fabric: `config/antifly.json`
+
+## World-specific disable
+- Paper config supports `disabledWorlds: []`
+- Fabric config supports `"disabledWorlds": []`
+- Add exact world names to disable AntiFly in those worlds, for example `world_nether`, `world_the_end`, or any custom multiverse world name
+- `/antifly status` shows the currently disabled worlds
 
 ## Modrinth version check
 - Project slug: `antiflight`

@@ -84,9 +84,12 @@ public final class AntiFlyListener implements Listener {
             state.fluidExitGraceTicks--;
         }
 
-        if (!plugin.isAntiFlyEnabled()) {
+        if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
+            resetAirFlags(state);
+            resetElytraBuffers(state);
             updateSupport(state, serverOnGround, inFluid, to);
             state.lastPos = to.clone();
+            state.wasGliding = false;
             return;
         }
 
@@ -223,15 +226,25 @@ public final class AntiFlyListener implements Listener {
         }
 
         double horizontal = Math.max(horizontalDistance(from, to), Math.sqrt(vel.getX() * vel.getX() + vel.getZ() * vel.getZ()));
-        double deltaY = Math.max(to.getY() - from.getY(), vel.getY());
+        // Use actual displacement for airborne vertical checks so stale velocity snapshots
+        // do not turn normal cliff jumps/falls into false upward-flight violations.
+        double deltaY = to.getY() - from.getY();
         boolean graceAir = state.airTicks <= settings.airGraceTicks || state.flightRevokeGraceTicks > 0;
         if (plugin.isDebug(player)) {
             sendDebugActionBar(player, state, "AIR", horizontal, deltaY, settings.maxAirHorizontal, settings.maxAirVertical);
         }
 
         if (player.isOnGround() && !state.lastServerOnGround) {
-            state.groundSpoofTicks++;
-            state.groundSpoofBuffer += 0.5;
+            // Client claims ground but server disagrees — only penalize if
+            // the player is actually exceeding legitimate ground speeds.
+            // This handles reduced-height blocks (beds, daylight detectors,
+            // lecterns, enchanting tables, stonecutters, cakes, campfires,
+            // brewing stands, hoppers, cauldrons, etc.) automatically.
+            double maxGround = maxGroundSpeed(player) + 0.05;
+            if (horizontal > maxGround || deltaY > 0.08) {
+                state.groundSpoofTicks++;
+                state.groundSpoofBuffer += 0.5;
+            }
         } else {
             state.groundSpoofTicks = Math.max(0, state.groundSpoofTicks - 1);
             state.groundSpoofBuffer = decay(state.groundSpoofBuffer, settings.bufferDecay);
@@ -250,8 +263,13 @@ public final class AntiFlyListener implements Listener {
         }
 
         boolean barelyMovingY = Math.abs(deltaY) <= settings.hoverDeltaY;
+        boolean nearlyZeroVerticalVelocity = Math.abs(vel.getY()) <= Math.max(settings.hoverDeltaY * 4.0, 0.03);
         boolean barelyMovingXZ = horizontal <= settings.hoverHorizontal;
-        if (state.airTicks > settings.hoverStartTicks && barelyMovingY && barelyMovingXZ && !nearGround) {
+        if (state.airTicks > settings.hoverStartTicks
+            && barelyMovingY
+            && nearlyZeroVerticalVelocity
+            && barelyMovingXZ
+            && !nearGround) {
             state.hoverTicks++;
             state.hoverBuffer += 1.0;
         } else {

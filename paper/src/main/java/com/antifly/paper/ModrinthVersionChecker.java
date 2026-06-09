@@ -49,8 +49,17 @@ final class ModrinthVersionChecker {
                 result = VersionResult.error(ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
             }
 
+            if (!plugin.isEnabled()) {
+                return;
+            }
+
             VersionResult finalResult = result;
-            Bukkit.getScheduler().runTask(plugin, () -> handler.handle(finalResult));
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (!plugin.isEnabled()) {
+                    return;
+                }
+                handler.handle(finalResult);
+            });
         });
     }
 
@@ -126,4 +135,3 @@ final class ModrinthVersionChecker {
         }
     }
 }
-

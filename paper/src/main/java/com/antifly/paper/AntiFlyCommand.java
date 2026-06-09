@@ -16,7 +16,7 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
 public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
-    private static final List<String> ROOT = List.of("help", "enable", "disable", "status", "alerts", "debug", "exempt", "unexempt", "set", "reset");
+    private static final List<String> ROOT = List.of("help", "enable", "disable", "status", "alerts", "debug", "exempt", "unexempt", "disabledworlds", "set", "reset");
     private static final List<String> SET_KEYS = List.of(
         "groundWalkMax", "groundMountedMax", "waterMax", "waterVerticalMax",
         "maxAirHorizontal", "maxAirVertical", "bufferDecay", "horizontalBufferLimit", "verticalBufferLimit",
@@ -72,6 +72,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly exempt <player>");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly unexempt <player>");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly reset <player>");
+                sender.sendMessage(ChatColor.AQUA + "Worlds");
+                sender.sendMessage(ChatColor.YELLOW + "  /antifly disabledworlds <worldName> <true|false>");
                 sender.sendMessage(ChatColor.AQUA + "Tuning");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly set");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly set <key>");
@@ -94,6 +96,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.GOLD + "AntiFly Status");
                 sender.sendMessage(ChatColor.GRAY + "State: "
                     + (plugin.isAntiFlyEnabled() ? ChatColor.GREEN + "ENABLED" : ChatColor.RED + "DISABLED"));
+                sender.sendMessage(ChatColor.GRAY + "Disabled worlds: " + ChatColor.WHITE
+                    + (s.disabledWorlds.isEmpty() ? "(none)" : String.join(", ", s.disabledWorlds)));
 
                 sender.sendMessage(ChatColor.AQUA + "Ground / Fluid");
                 sender.sendMessage(ChatColor.GRAY + "  groundWalkMax=" + ChatColor.WHITE + s.groundWalkMax
@@ -232,6 +236,25 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.GREEN + "Set " + key + " to " + value + ".");
                 return true;
             }
+            case "disabledworlds" -> {
+                if (args.length < 3) {
+                    sender.sendMessage(ChatColor.YELLOW + "Usage: /antifly disabledworlds <worldName> <true|false>");
+                    sender.sendMessage(ChatColor.GRAY + "Current: "
+                        + (plugin.getDisabledWorlds().isEmpty() ? "(none)" : String.join(", ", plugin.getDisabledWorlds())));
+                    return true;
+                }
+                String worldName = args[1];
+                String value = args[2].toLowerCase(Locale.ROOT);
+                if (!value.equals("true") && !value.equals("false")) {
+                    sender.sendMessage(ChatColor.RED + "Value must be true or false.");
+                    return true;
+                }
+                boolean disabled = Boolean.parseBoolean(value);
+                plugin.setWorldDisabled(worldName, disabled);
+                sender.sendMessage(ChatColor.GREEN + "World " + worldName + " is now "
+                    + (disabled ? "disabled" : "enabled") + " for AntiFly.");
+                return true;
+            }
             case "reset" -> {
                 if (args.length < 2) {
                     sender.sendMessage(ChatColor.YELLOW + "Usage: /antifly reset <player>");
@@ -272,6 +295,12 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("alerts")) {
             return filter(List.of("off", "game", "console", "both"), args[1]);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("disabledworlds")) {
+            return null;
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("disabledworlds")) {
+            return filter(List.of("true", "false"), args[2]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
             List<String> allKeys = new ArrayList<>(SET_KEYS);

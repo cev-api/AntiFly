@@ -3,6 +3,7 @@ package com.antifly.paper;
 import com.antifly.common.AntiFlyConstants;
 import com.antifly.common.AttemptTracker;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -45,6 +46,37 @@ public final class AntiFlyPlugin extends JavaPlugin {
 
     boolean isAntiFlyEnabled() {
         return antiFlyEnabled;
+    }
+
+    boolean isWorldEnabled(String worldName) {
+        if (worldName == null) {
+            return true;
+        }
+        return !settings.disabledWorlds.contains(worldName.toLowerCase(Locale.ROOT));
+    }
+
+    Set<String> getDisabledWorlds() {
+        return settings.disabledWorlds;
+    }
+
+    void setWorldDisabled(String worldName, boolean disabled) {
+        if (worldName == null) {
+            return;
+        }
+        String normalized = worldName.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return;
+        }
+        java.util.LinkedHashSet<String> updated = new java.util.LinkedHashSet<>(settings.disabledWorlds);
+        if (disabled) {
+            updated.add(normalized);
+        } else {
+            updated.remove(normalized);
+        }
+        settings.disabledWorlds = java.util.Set.copyOf(updated);
+        FileConfiguration config = getConfig();
+        config.set("disabledWorlds", settings.disabledWorlds.stream().sorted().toList());
+        saveConfig();
     }
 
     void setAntiFlyEnabled(boolean enabled) {
@@ -201,6 +233,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("limits.waterVertical", AntiFlyConstants.DEFAULT_WATER_VERTICAL_MAX);
 
         config.addDefault("modrinth.projectSlug", "antiflight");
+        config.addDefault("disabledWorlds", java.util.List.of());
         config.addDefault("exempt", java.util.List.of());
         config.options().copyDefaults(true);
         saveConfig();
@@ -253,6 +286,10 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.elytraRequireMovementSuspicionForDurabilityPunish = config.getBoolean("elytra.requireMovementSuspicionForDurabilityPunish", true);
 
         settings.modrinthProjectSlug = config.getString("modrinth.projectSlug", "antiflight");
+        settings.disabledWorlds = config.getStringList("disabledWorlds").stream()
+            .map(name -> name == null ? "" : name.trim().toLowerCase(Locale.ROOT))
+            .filter(name -> !name.isEmpty())
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
         exempt.clear();
         for (String entry : config.getStringList("exempt")) {
@@ -291,6 +328,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("elytra.maxRocketUp", settings.elytraMaxRocketUp);
         config.set("elytra.noRocketSustainableHorizontal", settings.elytraNoRocketSustainableHorizontal);
         config.set("elytra.maxNoRocketUp", settings.elytraMaxNoRocketUp);
+        config.set("disabledWorlds", settings.disabledWorlds.stream().sorted().toList());
     }
 
     static String normalizeSettingKey(String key) {
@@ -406,6 +444,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         boolean elytraRequireMovementSuspicionForDurabilityPunish;
 
         String modrinthProjectSlug;
+        Set<String> disabledWorlds = Set.of();
     }
 
     enum AlertMode {
