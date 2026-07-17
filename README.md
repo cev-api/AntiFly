@@ -12,8 +12,10 @@ AntiFly is not a full anti-cheat. It focuses on flight and movement abuse with l
 - Elytra-specific movement and boost sanity checks
 
 ## Platforms
-- Paper: 1.21.x -> 26.1.2
+- Paper: 1.21.1-26.2 (Folia-supported)
+- Fabric: 1.21.11 (Fabric API 0.139.4)
 - Fabric: 26.1.2 (Fabric API 0.146.1)
+- Fabric: 26.2 (Fabric API 0.154.2)
 
 ## Build
 ```bash
@@ -22,7 +24,9 @@ AntiFly is not a full anti-cheat. It focuses on flight and movement abuse with l
 
 Artifacts:
 - `paper/build/libs/AntiFly-paper-<version>.jar`
-- `fabric/build/libs/AntiFly-fabric-<version>.jar`
+- `fabric_12111/build/libs/AntiFly-fabric-1.21.11-<version>.jar`
+- `fabric_2612/build/libs/AntiFly-fabric-26.1.2-<version>.jar`
+- `fabric_262/build/libs/AntiFly-fabric-26.2-<version>.jar`
 
 ## Install
 - Paper: drop the Paper jar into `plugins/`
@@ -76,6 +80,9 @@ Requires moderator-level command permission.
 - `airNonFallTicksLimit`
 - `antiKickWindowTicks`
 - `antiKickMinDescent`
+- `vehicleAirGraceTicks`
+- `boatAirGraceTicks`
+- `horseAirGraceTicks`
 - `setbackCooldownMs`
 - `elytraEnabled`
 - `elytraBoostGraceTicks`

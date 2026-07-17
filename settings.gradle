@@ -7,4 +7,4 @@ pluginManagement {
 }
 
 rootProject.name = 'AntiFly'
-include 'common', 'paper', 'fabric_12111', 'fabric_2612'
+include 'common', 'paper', 'fabric_12111', 'fabric_2612', 'fabric_262'
