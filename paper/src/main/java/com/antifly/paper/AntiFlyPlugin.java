@@ -115,6 +115,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         String slug = settings.modrinthProjectSlug;
         sender.sendMessage(org.bukkit.ChatColor.GRAY + "Checking Modrinth for " + slug + " ...");
         ModrinthVersionChecker.checkLatest(this, slug, result -> {
+            runOnSenderContext(sender, () -> {
             if (!result.ok) {
                 sender.sendMessage(org.bukkit.ChatColor.RED + "Modrinth check failed: " + result.error);
                 return;
@@ -127,7 +128,16 @@ public final class AntiFlyPlugin extends JavaPlugin {
             } else {
                 sender.sendMessage(org.bukkit.ChatColor.GREEN + "Up to date with Modrinth: " + currentVersion);
             }
+            });
         });
+    }
+
+    private void runOnSenderContext(org.bukkit.command.CommandSender sender, Runnable task) {
+        if (sender instanceof Player player) {
+            player.getScheduler().run(this, scheduledTask -> task.run(), null);
+        } else {
+            Bukkit.getGlobalRegionScheduler().run(this, scheduledTask -> task.run());
+        }
     }
 
     void addExempt(UUID uuid) {
@@ -151,6 +161,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "groundMountedMax" -> settings.groundMountedMax = value;
             case "waterMax" -> settings.waterMax = value;
             case "waterVerticalMax" -> settings.waterVerticalMax = value;
+            case "boatMaxHorizontal" -> settings.boatMaxHorizontal = value;
             case "maxAirHorizontal" -> settings.maxAirHorizontal = value;
             case "maxAirVertical" -> settings.maxAirVertical = value;
             case "bufferDecay" -> settings.bufferDecay = value;
@@ -162,11 +173,16 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "antiKickWindowTicks" -> settings.antiKickWindowTicks = (int) Math.round(value);
             case "antiKickMinDescent" -> settings.antiKickMinDescent = value;
             case "setbackCooldownMs" -> settings.setbackCooldownMs = (long) Math.round(value);
+            case "vehicleAirGraceTicks" -> settings.vehicleAirGraceTicks = (int) Math.round(value);
+            case "boatAirGraceTicks" -> settings.boatAirGraceTicks = (int) Math.round(value);
+            case "horseAirGraceTicks" -> settings.horseAirGraceTicks = (int) Math.round(value);
             case "elytraEnabled" -> settings.elytraEnabled = value > 0.5;
             case "elytraBoostGraceTicks" -> settings.elytraBoostGraceTicks = (int) Math.round(value);
             case "elytraStallTicks" -> settings.elytraStallTicks = (int) Math.round(value);
             case "elytraMovementBufferLimit" -> settings.elytraMovementBufferLimit = value;
             case "elytraDurabilityCheckEnabled" -> settings.elytraDurabilityCheckEnabled = value > 0.5;
+            case "elytraNoRocketMaxAscent" -> settings.elytraNoRocketMaxAscent = value;
+            case "elytraRequiredDescentForPullup" -> settings.elytraRequiredDescentForPullup = value;
             case "elytraMaxRocketHorizontal" -> settings.elytraMaxRocketHorizontal = value;
             case "elytraMaxRocketUp" -> settings.elytraMaxRocketUp = value;
             case "elytraNoRocketSustainableHorizontal" -> settings.elytraNoRocketSustainableHorizontal = value;
@@ -197,6 +213,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("antiFly.airNonFallTicksLimit", 20);
         config.addDefault("antiFly.antiKickWindowTicks", 40);
         config.addDefault("antiFly.antiKickMinDescent", 0.35);
+        config.addDefault("antiFly.vehicleAirGraceTicks", 10);
+        config.addDefault("antiFly.boatAirGraceTicks", 0);
+        config.addDefault("antiFly.horseAirGraceTicks", 24);
         config.addDefault("antiFly.horizontalBufferLimit", 3.0);
         config.addDefault("antiFly.verticalBufferLimit", 2.0);
         config.addDefault("antiFly.hoverBufferLimit", 3.0);
@@ -231,6 +250,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("limits.groundMounted", AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX);
         config.addDefault("limits.water", AntiFlyConstants.DEFAULT_WATER_MAX);
         config.addDefault("limits.waterVertical", AntiFlyConstants.DEFAULT_WATER_VERTICAL_MAX);
+        config.addDefault("limits.boatHorizontal", AntiFlyConstants.BOAT_MAX_HORIZONTAL);
 
         config.addDefault("modrinth.projectSlug", "antiflight");
         config.addDefault("disabledWorlds", java.util.List.of());
@@ -244,6 +264,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.groundMountedMax = config.getDouble("limits.groundMounted", AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX);
         settings.waterMax = config.getDouble("limits.water", AntiFlyConstants.DEFAULT_WATER_MAX);
         settings.waterVerticalMax = config.getDouble("limits.waterVertical", AntiFlyConstants.DEFAULT_WATER_VERTICAL_MAX);
+        settings.boatMaxHorizontal = config.getDouble("limits.boatHorizontal", AntiFlyConstants.BOAT_MAX_HORIZONTAL);
 
         settings.airGraceTicks = config.getInt("antiFly.airGraceTicks", 4);
         settings.maxAirHorizontal = config.getDouble("antiFly.maxAirHorizontal", AntiFlyConstants.DEFAULT_AIR_MAX);
@@ -255,6 +276,10 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.airNonFallTicksLimit = config.getInt("antiFly.airNonFallTicksLimit", 20);
         settings.antiKickWindowTicks = config.getInt("antiFly.antiKickWindowTicks", 40);
         settings.antiKickMinDescent = config.getDouble("antiFly.antiKickMinDescent", 0.35);
+        settings.vehicleAirGraceTicks = config.getInt("antiFly.vehicleAirGraceTicks", 10);
+        settings.boatAirGraceTicks = config.getInt("antiFly.boatAirGraceTicks", 0);
+        settings.horseAirGraceTicks = config.getInt("antiFly.horseAirGraceTicks", 24);
+        config.set("antiFly.boatAirGraceTicks", settings.boatAirGraceTicks);
         settings.horizontalBufferLimit = config.getDouble("antiFly.horizontalBufferLimit", 3.0);
         settings.verticalBufferLimit = config.getDouble("antiFly.verticalBufferLimit", 2.0);
         settings.hoverBufferLimit = config.getDouble("antiFly.hoverBufferLimit", 3.0);
@@ -306,6 +331,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("limits.groundMounted", settings.groundMountedMax);
         config.set("limits.water", settings.waterMax);
         config.set("limits.waterVertical", settings.waterVerticalMax);
+        config.set("limits.boatHorizontal", settings.boatMaxHorizontal);
 
         config.set("antiFly.maxAirHorizontal", settings.maxAirHorizontal);
         config.set("antiFly.maxAirVertical", settings.maxAirVertical);
@@ -317,6 +343,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("antiFly.airNonFallTicksLimit", settings.airNonFallTicksLimit);
         config.set("antiFly.antiKickWindowTicks", settings.antiKickWindowTicks);
         config.set("antiFly.antiKickMinDescent", settings.antiKickMinDescent);
+        config.set("antiFly.vehicleAirGraceTicks", settings.vehicleAirGraceTicks);
+        config.set("antiFly.boatAirGraceTicks", settings.boatAirGraceTicks);
+        config.set("antiFly.horseAirGraceTicks", settings.horseAirGraceTicks);
         config.set("antiFly.setbackCooldownMs", settings.setbackCooldownMs);
 
         config.set("elytra.enabled", settings.elytraEnabled);
@@ -327,7 +356,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("elytra.maxRocketHorizontal", settings.elytraMaxRocketHorizontal);
         config.set("elytra.maxRocketUp", settings.elytraMaxRocketUp);
         config.set("elytra.noRocketSustainableHorizontal", settings.elytraNoRocketSustainableHorizontal);
+        config.set("elytra.noRocketMaxAscent", settings.elytraNoRocketMaxAscent);
         config.set("elytra.maxNoRocketUp", settings.elytraMaxNoRocketUp);
+        config.set("elytra.requiredDescentForPullup", settings.elytraRequiredDescentForPullup);
         config.set("disabledWorlds", settings.disabledWorlds.stream().sorted().toList());
     }
 
@@ -337,6 +368,14 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "airVertical", "maxAirVertical" -> "maxAirVertical";
             case "airNonFallTicks", "airNonFallTicksLimit" -> "airNonFallTicksLimit";
             case "elytraMovementLimit", "elytraMovementBufferLimit" -> "elytraMovementBufferLimit";
+            case "vehicleAirGrace", "vehicleAirGraceTicks" -> "vehicleAirGraceTicks";
+            case "boatAirGrace", "boatAirGraceTicks" -> "boatAirGraceTicks";
+            case "horseAirGrace", "horseAirGraceTicks" -> "horseAirGraceTicks";
+            case "boatSpeed", "boatMaxHorizontal" -> "boatMaxHorizontal";
+            case "vehicle_air_grace_ticks" -> "vehicleAirGraceTicks";
+            case "boat_air_grace_ticks" -> "boatAirGraceTicks";
+            case "horse_air_grace_ticks" -> "horseAirGraceTicks";
+            case "boat_max_horizontal" -> "boatMaxHorizontal";
             case "groundSpeed", "groundSpeedWalking", "groundWalkMax" -> "groundWalkMax";
             case "groundSpeedMounted", "groundMountedMax" -> "groundMountedMax";
             case "waterSpeed", "waterMax" -> "waterMax";
@@ -345,6 +384,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "ground_mounted_max" -> "groundMountedMax";
             case "water_max" -> "waterMax";
             case "water_vertical_max" -> "waterVerticalMax";
+            case "boat_horizontal_max" -> "boatMaxHorizontal";
             case "max_air_horizontal" -> "maxAirHorizontal";
             case "max_air_vertical" -> "maxAirVertical";
             case "buffer_decay" -> "bufferDecay";
@@ -364,7 +404,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "elytra_max_rocket_horizontal" -> "elytraMaxRocketHorizontal";
             case "elytra_max_rocket_up" -> "elytraMaxRocketUp";
             case "elytra_no_rocket_sustainable_horizontal" -> "elytraNoRocketSustainableHorizontal";
+            case "elytra_no_rocket_max_ascent" -> "elytraNoRocketMaxAscent";
             case "elytra_max_no_rocket_up" -> "elytraMaxNoRocketUp";
+            case "elytra_required_descent_for_pullup" -> "elytraRequiredDescentForPullup";
             default -> key;
         };
     }
@@ -379,6 +421,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
     private void checkModrinthVersionAndAlertOps() {
         String currentVersion = getDescription().getVersion();
         ModrinthVersionChecker.checkLatest(this, settings.modrinthProjectSlug, result -> {
+            Bukkit.getGlobalRegionScheduler().run(this, scheduledTask -> {
             if (!result.ok) {
                 getLogger().warning("Modrinth version check failed: " + result.error);
                 return;
@@ -394,6 +437,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
                     player.sendMessage(org.bukkit.ChatColor.RED + msg);
                 }
             }
+            });
         });
     }
 
@@ -402,6 +446,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double groundMountedMax;
         double waterMax;
         double waterVerticalMax;
+        double boatMaxHorizontal;
 
         int airGraceTicks;
         double maxAirHorizontal;
@@ -413,6 +458,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         int airNonFallTicksLimit;
         int antiKickWindowTicks;
         double antiKickMinDescent;
+        int vehicleAirGraceTicks;
+        int boatAirGraceTicks;
+        int horseAirGraceTicks;
         double horizontalBufferLimit;
         double verticalBufferLimit;
         double hoverBufferLimit;
@@ -495,6 +543,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double elytraBuffer;
 
         int airTicks;
+        int vehicleAirTicks;
         int airNonFallTicks;
         int hoverTicks;
         int antiKickWindowTicks;

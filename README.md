@@ -65,6 +65,7 @@ Requires moderator-level command permission.
 - `groundMountedMax`
 - `waterMax`
 - `waterVerticalMax`
+- `boatMaxHorizontal`
 - `maxAirHorizontal`
 - `maxAirVertical`
 - `bufferDecay`
@@ -81,6 +82,8 @@ Requires moderator-level command permission.
 - `elytraStallTicks`
 - `elytraMovementBufferLimit`
 - `elytraDurabilityCheckEnabled`
+- `elytraNoRocketMaxAscent`
+- `elytraRequiredDescentForPullup`
 - `elytraMaxRocketHorizontal`
 - `elytraMaxRocketUp`
 - `elytraNoRocketSustainableHorizontal`

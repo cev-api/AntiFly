@@ -318,13 +318,20 @@ public final class AntiFlyFabric implements ModInitializer {
             }
         }
         boolean inBoatWater = false;
+        boolean boatOnSupport = false;
         if (inVehicle && player.getVehicle() instanceof Boat boat) {
-            inBoatWater = isBoatInFluid(boat)
+            inBoatWater = boat.isInWater()
+                || isBoatInFluid(boat)
                 || boat.onGround()
                 || !boat.level().getFluidState(boat.blockPosition()).isEmpty()
                 || !boat.level().getFluidState(boat.blockPosition().below()).isEmpty();
+            boatOnSupport = hasBoatGroundSupport(boat);
         }
         if (inBoatWater) {
+            inFluid = true;
+        }
+
+        if (inVehicle && player.getVehicle() instanceof Boat boat && boatOnSupport) {
             inFluid = true;
         }
 
@@ -726,6 +733,18 @@ public final class AntiFlyFabric implements ModInitializer {
             && hasSolidSupportAtY(level, minX, maxX, minZ, maxZ, deepBlockY);
     }
 
+    private boolean hasBoatGroundSupport(Boat boat) {
+        ServerLevel level = (ServerLevel) boat.level();
+        AABB box = boat.getBoundingBox();
+        double minX = box.minX + AntiFlyConstants.SUPPORT_EPSILON;
+        double maxX = box.maxX - AntiFlyConstants.SUPPORT_EPSILON;
+        double minZ = box.minZ + AntiFlyConstants.SUPPORT_EPSILON;
+        double maxZ = box.maxZ - AntiFlyConstants.SUPPORT_EPSILON;
+        int blockY = Mth.floor(box.minY - AntiFlyConstants.SUPPORT_EPSILON);
+        return blockY >= minBuildHeight(level)
+            && hasSolidSupportAtY(level, minX, maxX, minZ, maxZ, blockY);
+    }
+
     private boolean hasGroundSupportLoose(ServerPlayer player) {
         ServerLevel level = getServerLevel(player);
         AABB box = player.getBoundingBox();
@@ -846,6 +865,9 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private int vehicleAirGraceTicks(Entity vehicle) {
         EntityType<?> type = vehicle.getType();
+        if (type == EntityType.BOAT) {
+            return 12;
+        }
         if (type == EntityType.HORSE
             || type == EntityType.DONKEY
             || type == EntityType.MULE
@@ -1142,15 +1164,8 @@ public final class AntiFlyFabric implements ModInitializer {
         "elytraBoostGraceTicks",
         "elytraMovementBufferLimit",
         "elytraDurabilityCheckEnabled",
-        "airSpeed",
-        "airVertical",
-        "airNonFallTicks",
         "antiKickWindowTicks",
         "antiKickMinDescent",
-        "waterSpeed",
-        "waterVertical",
-        "groundSpeedWalking",
-        "groundSpeedMounted",
         "vehicleFallMinDescent",
         "vehicleFallMaxHorizontal",
         "vehicleFallTicksMax",

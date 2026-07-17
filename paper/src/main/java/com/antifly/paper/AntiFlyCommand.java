@@ -18,27 +18,15 @@ import org.bukkit.entity.Player;
 public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
     private static final List<String> ROOT = List.of("help", "enable", "disable", "status", "alerts", "debug", "exempt", "unexempt", "disabledworlds", "set", "reset");
     private static final List<String> SET_KEYS = List.of(
-        "groundWalkMax", "groundMountedMax", "waterMax", "waterVerticalMax",
+        "groundWalkMax", "groundMountedMax", "waterMax", "waterVerticalMax", "boatMaxHorizontal",
         "maxAirHorizontal", "maxAirVertical", "bufferDecay", "horizontalBufferLimit", "verticalBufferLimit",
         "hoverBufferLimit", "noFallDetectionEnabled", "airNonFallTicksLimit", "antiKickWindowTicks",
-        "antiKickMinDescent", "setbackCooldownMs", "elytraEnabled", "elytraBoostGraceTicks",
+        "antiKickMinDescent", "setbackCooldownMs", "vehicleAirGraceTicks", "boatAirGraceTicks", "horseAirGraceTicks",
+        "elytraEnabled", "elytraBoostGraceTicks",
         "elytraStallTicks", "elytraMovementBufferLimit", "elytraDurabilityCheckEnabled",
+        "elytraNoRocketMaxAscent", "elytraRequiredDescentForPullup",
         "elytraMaxRocketHorizontal", "elytraMaxRocketUp", "elytraNoRocketSustainableHorizontal", "elytraMaxNoRocketUp"
     );
-    private static final List<String> SET_ALIASES = List.of(
-        "groundSpeed", "groundSpeedWalking", "groundSpeedMounted",
-        "waterSpeed", "waterVertical",
-        "airSpeed", "airVertical", "airNonFallTicks", "elytraMovementLimit",
-        "ground_walk_max", "ground_mounted_max", "water_max", "water_vertical_max",
-        "max_air_horizontal", "max_air_vertical", "buffer_decay", "horizontal_buffer_limit",
-        "vertical_buffer_limit", "hover_buffer_limit", "no_fall_detection_enabled",
-        "air_non_fall_ticks_limit", "anti_kick_window_ticks", "anti_kick_min_descent",
-        "setback_cooldown_ms", "elytra_enabled", "elytra_boost_grace_ticks",
-        "elytra_stall_ticks", "elytra_movement_buffer_limit", "elytra_durability_check_enabled",
-        "elytra_max_rocket_horizontal", "elytra_max_rocket_up",
-        "elytra_no_rocket_sustainable_horizontal", "elytra_max_no_rocket_up"
-    );
-
     private final AntiFlyPlugin plugin;
 
     public AntiFlyCommand(AntiFlyPlugin plugin) {
@@ -104,6 +92,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     + ChatColor.GRAY + "  groundMountedMax=" + ChatColor.WHITE + s.groundMountedMax);
                 sender.sendMessage(ChatColor.GRAY + "  waterMax=" + ChatColor.WHITE + s.waterMax
                     + ChatColor.GRAY + "  waterVerticalMax=" + ChatColor.WHITE + s.waterVerticalMax);
+                sender.sendMessage(ChatColor.GRAY + "  boatMaxHorizontal=" + ChatColor.WHITE + s.boatMaxHorizontal);
 
                 sender.sendMessage(ChatColor.AQUA + "Air");
                 sender.sendMessage(ChatColor.GRAY + "  maxAirHorizontal=" + ChatColor.WHITE + s.maxAirHorizontal
@@ -112,6 +101,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     + ChatColor.GRAY + "  airNonFallTicksLimit=" + ChatColor.WHITE + s.airNonFallTicksLimit);
                 sender.sendMessage(ChatColor.GRAY + "  antiKickWindowTicks=" + ChatColor.WHITE + s.antiKickWindowTicks
                     + ChatColor.GRAY + "  antiKickMinDescent=" + ChatColor.WHITE + s.antiKickMinDescent);
+                sender.sendMessage(ChatColor.GRAY + "  vehicleAirGraceTicks=" + ChatColor.WHITE + s.vehicleAirGraceTicks
+                    + ChatColor.GRAY + "  boatAirGraceTicks=" + ChatColor.WHITE + s.boatAirGraceTicks
+                    + ChatColor.GRAY + "  horseAirGraceTicks=" + ChatColor.WHITE + s.horseAirGraceTicks);
 
                 sender.sendMessage(ChatColor.AQUA + "Buffers / Setback");
                 sender.sendMessage(ChatColor.GRAY + "  bufferDecay=" + ChatColor.WHITE + s.bufferDecay
@@ -131,6 +123,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     + ChatColor.GRAY + "  maxRocketUp=" + ChatColor.WHITE + s.elytraMaxRocketUp);
                 sender.sendMessage(ChatColor.GRAY + "  noRocketSustainableHorizontal=" + ChatColor.WHITE + s.elytraNoRocketSustainableHorizontal
                     + ChatColor.GRAY + "  maxNoRocketUp=" + ChatColor.WHITE + s.elytraMaxNoRocketUp);
+                sender.sendMessage(ChatColor.GRAY + "  noRocketMaxAscent=" + ChatColor.WHITE + s.elytraNoRocketMaxAscent
+                    + ChatColor.GRAY + "  requiredDescentForPullup=" + ChatColor.WHITE + s.elytraRequiredDescentForPullup);
                 plugin.checkModrinthVersion(sender);
                 return true;
             }
@@ -303,9 +297,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             return filter(List.of("true", "false"), args[2]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
-            List<String> allKeys = new ArrayList<>(SET_KEYS);
-            allKeys.addAll(SET_ALIASES);
-            return filter(allKeys, args[1]);
+            return filter(SET_KEYS, args[1]);
         }
         return List.of();
     }
@@ -351,6 +343,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "groundMountedMax" -> String.valueOf(s.groundMountedMax);
             case "waterMax" -> String.valueOf(s.waterMax);
             case "waterVerticalMax" -> String.valueOf(s.waterVerticalMax);
+            case "boatMaxHorizontal" -> String.valueOf(s.boatMaxHorizontal);
             case "maxAirHorizontal" -> String.valueOf(s.maxAirHorizontal);
             case "maxAirVertical" -> String.valueOf(s.maxAirVertical);
             case "bufferDecay" -> String.valueOf(s.bufferDecay);
@@ -362,11 +355,16 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "antiKickWindowTicks" -> String.valueOf(s.antiKickWindowTicks);
             case "antiKickMinDescent" -> String.valueOf(s.antiKickMinDescent);
             case "setbackCooldownMs" -> String.valueOf(s.setbackCooldownMs);
+            case "vehicleAirGraceTicks" -> String.valueOf(s.vehicleAirGraceTicks);
+            case "boatAirGraceTicks" -> String.valueOf(s.boatAirGraceTicks);
+            case "horseAirGraceTicks" -> String.valueOf(s.horseAirGraceTicks);
             case "elytraEnabled" -> String.valueOf(s.elytraEnabled);
             case "elytraBoostGraceTicks" -> String.valueOf(s.elytraBoostGraceTicks);
             case "elytraStallTicks" -> String.valueOf(s.elytraStallTicks);
             case "elytraMovementBufferLimit" -> String.valueOf(s.elytraMovementBufferLimit);
             case "elytraDurabilityCheckEnabled" -> String.valueOf(s.elytraDurabilityCheckEnabled);
+            case "elytraNoRocketMaxAscent" -> String.valueOf(s.elytraNoRocketMaxAscent);
+            case "elytraRequiredDescentForPullup" -> String.valueOf(s.elytraRequiredDescentForPullup);
             case "elytraMaxRocketHorizontal" -> String.valueOf(s.elytraMaxRocketHorizontal);
             case "elytraMaxRocketUp" -> String.valueOf(s.elytraMaxRocketUp);
             case "elytraNoRocketSustainableHorizontal" -> String.valueOf(s.elytraNoRocketSustainableHorizontal);

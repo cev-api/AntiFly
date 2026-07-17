@@ -68,12 +68,21 @@ public final class AntiFlyListener implements Listener {
 
         boolean inFluid = player.isInWater() || player.isInLava() || player.isSwimming();
         boolean inVehicle = player.isInsideVehicle();
+        boolean inBoatWater = inVehicle && player.getVehicle() instanceof Boat boat && isBoatInFluid(boat);
+        boolean boatOnSupport = inVehicle && player.getVehicle() instanceof Boat boat && hasBoatGroundSupport(boat);
         boolean clientOnGround = player.isOnGround();
         boolean serverOnGround = hasGroundSupport(player, to);
         boolean nearGround = isNearGround(player, to);
+        boolean wasServerOnGround = state.lastServerOnGround;
 
         state.lastClientOnGround = clientOnGround;
         state.lastServerOnGround = serverOnGround;
+        if (serverOnGround && !wasServerOnGround) {
+            state.glideLandingGraceTicks = Math.max(state.glideLandingGraceTicks, settings.elytraLandingGraceTicks);
+        }
+        if (state.glideLandingGraceTicks > 0) {
+            state.glideLandingGraceTicks--;
+        }
         if (inFluid) {
             state.lastInFluid = true;
             state.fluidExitGraceTicks = 0;
@@ -93,7 +102,7 @@ public final class AntiFlyListener implements Listener {
             return;
         }
 
-        if (handleVehicleMovement(player, state, from, to, serverOnGround, inFluid)) {
+        if (handleVehicleMovement(player, state, from, to, serverOnGround, inFluid, inBoatWater, boatOnSupport)) {
             state.lastPos = to.clone();
             return;
         }
@@ -119,7 +128,7 @@ public final class AntiFlyListener implements Listener {
 
         if (serverOnGround || isSupportedByCollisionLikeBlock(to)) {
             handleGroundMovement(player, state, from, to);
-        } else if (inFluid) {
+        } else if (inFluid || inBoatWater) {
             handleFluidMovement(player, state, from, to);
         } else {
             handleNormalAirMovement(player, state, from, to, nearGround);
@@ -189,7 +198,7 @@ public final class AntiFlyListener implements Listener {
         if (plugin.isDebug(player)) {
             sendDebugActionBar(player, state, "GROUND", horizontal, to.getY() - from.getY(), maxAllowed, 0.0);
         }
-        if (horizontal > (maxAllowed + groundTolerance)) {
+        if (state.glideLandingGraceTicks <= 0 && horizontal > (maxAllowed + groundTolerance)) {
             fail(player, state, "ground_speed", horizontal, maxAllowed);
             return;
         }
@@ -332,40 +341,100 @@ public final class AntiFlyListener implements Listener {
     }
 
     private boolean handleVehicleMovement(Player player, AntiFlyPlugin.PlayerState state, Location from, Location to,
-                                          boolean serverOnGround, boolean inFluid) {
+                                          boolean serverOnGround, boolean inFluid, boolean inBoatWater,
+                                          boolean boatOnSupport) {
         if (!player.isInsideVehicle()) {
             return false;
         }
 
+        AntiFlyPlugin.Settings settings = plugin.getSettings();
         Entity vehicle = player.getVehicle();
         if (vehicle == null) {
             return false;
         }
 
-        if (state.airTicks == 0) {
+        if (state.vehicleAirTicks == 0 && !(vehicle instanceof Boat)) {
             state.flightRevokeGraceTicks = 20;
         }
 
+        if (vehicle instanceof Boat && (inBoatWater || boatOnSupport)) {
+            double horizontal = horizontalDistance(from, to);
+            Vector boatVelocity = vehicle.getVelocity();
+            horizontal = Math.max(horizontal, Math.sqrt(boatVelocity.getX() * boatVelocity.getX() + boatVelocity.getZ() * boatVelocity.getZ()));
+            double maxAllowed = settings.boatMaxHorizontal;
+            if (plugin.isDebug(player)) {
+                sendDebugActionBar(player, state, "BOAT", horizontal, to.getY() - from.getY(), maxAllowed, 0.0);
+            }
+            if (horizontal > maxAllowed) {
+                rubberBandVehicle(player, state, "boat_speed", horizontal, maxAllowed);
+                return true;
+            }
+            updateSupport(state, false, true, to);
+            resetAirFlags(state);
+            return true;
+        }
+
         if (serverOnGround || inFluid) {
+            state.vehicleAirTicks = 0;
             return true;
         }
 
         double deltaY = to.getY() - from.getY();
         double horizontal = horizontalDistance(from, to);
-        boolean naturalFall = deltaY <= -0.04 && horizontal <= 0.4;
+        if (vehicle instanceof Boat boat) {
+            Vector velocity = boat.getVelocity();
+            double horizontalVelocity = Math.sqrt(velocity.getX() * velocity.getX() + velocity.getZ() * velocity.getZ());
+            horizontal = Math.max(horizontal, horizontalVelocity);
+            if (horizontal > settings.boatMaxHorizontal) {
+                rubberBandVehicle(player, state, "boat_speed", horizontal, settings.boatMaxHorizontal);
+                return true;
+            }
+            if (deltaY > 0.02 || velocity.getY() > 0.05) {
+                rubberBandVehicle(player, state, "vehicle_flight", Math.max(deltaY, velocity.getY()), 0.0);
+                return true;
+            }
+            if (Math.abs(deltaY) <= 0.001 && Math.abs(velocity.getY()) <= 0.05) {
+                boat.setVelocity(new Vector(0.0, -0.08, 0.0));
+                state.vehicleAirTicks = 0;
+                return true;
+            }
+        }
+        double naturalFallHorizontal = vehicle instanceof Boat ? settings.boatMaxHorizontal : 0.4;
+        boolean naturalFall = deltaY <= -0.04 && horizontal <= naturalFallHorizontal;
 
         if (naturalFall) {
+            state.vehicleAirTicks = 0;
             return true;
         }
 
-        int grace = vehicle instanceof AbstractHorse ? 24 : (vehicle instanceof Boat ? 12 : 10);
-        state.airTicks++;
-        if (state.airTicks <= grace) {
+        int grace = vehicle instanceof AbstractHorse ? settings.horseAirGraceTicks
+            : (vehicle instanceof Boat ? settings.boatAirGraceTicks : settings.vehicleAirGraceTicks);
+        state.vehicleAirTicks++;
+        if (state.vehicleAirTicks <= grace) {
             return true;
         }
 
-        rubberBandVehicle(player, state, "vehicle_flight");
+        rubberBandVehicle(player, state, "vehicle_flight", state.vehicleAirTicks, grace);
         return true;
+    }
+
+    private boolean isBoatInFluid(Boat boat) {
+        Location loc = boat.getLocation();
+        return boat.isInWater()
+            || loc.getBlock().isLiquid()
+            || loc.clone().subtract(0.0, 1.0, 0.0).getBlock().isLiquid()
+            || loc.clone().add(0.0, 1.0, 0.0).getBlock().isLiquid();
+    }
+
+    private boolean hasBoatGroundSupport(Boat boat) {
+        BoundingBox box = boat.getBoundingBox();
+        double minX = box.getMinX() + 0.03;
+        double maxX = box.getMaxX() - 0.03;
+        double minZ = box.getMinZ() + 0.03;
+        double maxZ = box.getMaxZ() - 0.03;
+        int y = (int) Math.floor(box.getMinY() - 0.03);
+        Location loc = boat.getLocation();
+        return hasSolidSupportAtY(loc, minX, maxX, minZ, maxZ, y);
     }
 
     private boolean handleElytraMovement(Player player, AntiFlyPlugin.PlayerState state, Location from, Location to,
@@ -651,6 +720,7 @@ public final class AntiFlyListener implements Listener {
 
     private void resetAirFlags(AntiFlyPlugin.PlayerState state) {
         state.airTicks = 0;
+        state.vehicleAirTicks = 0;
         state.airNonFallTicks = 0;
         state.hoverTicks = 0;
         state.antiKickWindowTicks = 0;
@@ -688,11 +758,12 @@ public final class AntiFlyListener implements Listener {
         return Math.max(0.0, value - by);
     }
 
-    private void rubberBandVehicle(Player player, AntiFlyPlugin.PlayerState state, String reason) {
+    private void rubberBandVehicle(Player player, AntiFlyPlugin.PlayerState state, String reason,
+                                   double actual, double allowed) {
         if (player.getVehicle() != null) {
             player.getVehicle().setVelocity(new Vector(0, 0, 0));
         }
-        fail(player, state, reason, 0.0, 0.0);
+        fail(player, state, reason, actual, allowed);
     }
 
     private void fail(Player player, AntiFlyPlugin.PlayerState state, String reason, double actual, double allowed) {
@@ -775,11 +846,13 @@ public final class AntiFlyListener implements Listener {
             case "ground_speed" -> "groundWalkMax";
             case "water_speed" -> "waterMax";
             case "water_vertical" -> "waterVerticalMax";
+            case "boat_speed" -> "boatMaxHorizontal";
             case "air_offset_horizontal" -> "horizontalBufferLimit/maxAirHorizontal";
             case "air_offset_vertical" -> "verticalBufferLimit/maxAirVertical";
             case "air_hover" -> "hoverBufferLimit";
             case "air_nonfall" -> "airNonFallTicksLimit";
             case "air_antikick" -> "antiKickWindowTicks/antiKickMinDescent";
+            case "vehicle_flight" -> "vehicleAirGraceTicks/boatAirGraceTicks/horseAirGraceTicks";
             case "elytra_stall" -> "elytraStallTicks";
             case "elytra_rocket_speed" -> "elytraMaxRocketHorizontal";
             case "elytra_rocket_climb" -> "elytraMaxRocketUp";

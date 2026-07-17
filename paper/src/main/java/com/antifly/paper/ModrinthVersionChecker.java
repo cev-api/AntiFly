@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
 final class ModrinthVersionChecker {
@@ -24,43 +23,35 @@ final class ModrinthVersionChecker {
     }
 
     static void checkLatest(JavaPlugin plugin, String projectSlug, VersionResultHandler handler) {
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            VersionResult result;
-            try {
-                String encodedSlug = URLEncoder.encode(projectSlug, StandardCharsets.UTF_8);
-                URI uri = URI.create("https://api.modrinth.com/v2/project/" + encodedSlug + "/version?featured=true&include_changelog=false");
-                HttpRequest request = HttpRequest.newBuilder(uri)
-                    .GET()
-                    .timeout(Duration.ofSeconds(8))
-                    .header("User-Agent", "AntiFly/" + plugin.getDescription().getVersion() + " (version-check)")
-                    .build();
-                HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-                if (response.statusCode() != 200) {
-                    result = VersionResult.error("HTTP " + response.statusCode());
-                } else {
-                    result = parseLatestVersion(response.body());
+        java.util.concurrent.CompletableFuture.supplyAsync(() -> fetchLatest(plugin, projectSlug))
+            .thenAccept(result -> {
+                if (plugin.isEnabled()) {
+                    handler.handle(result);
                 }
-            } catch (IOException | InterruptedException ex) {
-                if (ex instanceof InterruptedException) {
-                    Thread.currentThread().interrupt();
-                }
-                result = VersionResult.error(ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
-            } catch (RuntimeException ex) {
-                result = VersionResult.error(ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
-            }
-
-            if (!plugin.isEnabled()) {
-                return;
-            }
-
-            VersionResult finalResult = result;
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (!plugin.isEnabled()) {
-                    return;
-                }
-                handler.handle(finalResult);
             });
-        });
+    }
+
+    private static VersionResult fetchLatest(JavaPlugin plugin, String projectSlug) {
+        try {
+            String encodedSlug = URLEncoder.encode(projectSlug, StandardCharsets.UTF_8);
+            URI uri = URI.create("https://api.modrinth.com/v2/project/" + encodedSlug + "/version?featured=true&include_changelog=false");
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                .GET()
+                .timeout(Duration.ofSeconds(8))
+                .header("User-Agent", "AntiFly/" + plugin.getDescription().getVersion() + " (version-check)")
+                .build();
+            HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            return response.statusCode() != 200
+                ? VersionResult.error("HTTP " + response.statusCode())
+                : parseLatestVersion(response.body());
+        } catch (IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return VersionResult.error(ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
+        } catch (RuntimeException ex) {
+            return VersionResult.error(ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
+        }
     }
 
     private static VersionResult parseLatestVersion(String body) {

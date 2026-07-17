@@ -21,6 +21,7 @@ public final class AntiFlyConstants {
     public static final double VEHICLE_FALL_MIN_DESCENT = -0.04;
     public static final double VEHICLE_FALL_MAX_HORIZONTAL = 0.40;
     public static final int VEHICLE_FALL_TICKS_MAX = 60;
+    public static final double BOAT_MAX_HORIZONTAL = 0.85;
     public static final double ELYTRA_MAX_HORIZONTAL = 2.6;
     public static final double ELYTRA_MAX_UP = 0.55;
     public static final double ELYTRA_MAX_DOWN = 4.0;
