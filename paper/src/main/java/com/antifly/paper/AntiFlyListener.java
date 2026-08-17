@@ -77,7 +77,7 @@ public final class AntiFlyListener implements Listener {
 
         state.lastClientOnGround = clientOnGround;
         state.lastServerOnGround = serverOnGround;
-        if (serverOnGround && !wasServerOnGround) {
+        if (serverOnGround && !wasServerOnGround && state.wasGliding) {
             state.glideLandingGraceTicks = Math.max(state.glideLandingGraceTicks, settings.elytraLandingGraceTicks);
         }
         if (state.glideLandingGraceTicks > 0) {
@@ -198,6 +198,11 @@ public final class AntiFlyListener implements Listener {
         if (plugin.isDebug(player)) {
             sendDebugActionBar(player, state, "GROUND", horizontal, to.getY() - from.getY(), maxAllowed, 0.0);
         }
+        // Reject fast movement that still reports airborne while collision support makes the position look grounded.
+        if (!player.isOnGround() && horizontal > (maxAllowed + groundTolerance)) {
+            fail(player, state, "ground_spoof_speed", horizontal, maxAllowed);
+            return;
+        }
         if (state.glideLandingGraceTicks <= 0 && horizontal > (maxAllowed + groundTolerance)) {
             fail(player, state, "ground_speed", horizontal, maxAllowed);
             return;
@@ -277,7 +282,6 @@ public final class AntiFlyListener implements Listener {
         if (state.airTicks > settings.hoverStartTicks
             && barelyMovingY
             && nearlyZeroVerticalVelocity
-            && barelyMovingXZ
             && !nearGround) {
             state.hoverTicks++;
             state.hoverBuffer += 1.0;
@@ -316,6 +320,16 @@ public final class AntiFlyListener implements Listener {
             state.antiKickWindowTicks = 0;
             state.airWindowDescent = 0.0;
             state.airWindowAscent = 0.0;
+        }
+
+        boolean sustainedFlatAir = settings.noFallDetectionEnabled
+            && state.antiKickWindowTicks >= 12
+            && state.airWindowDescent < 0.15
+            && state.airWindowAscent < 0.15
+            && horizontal >= 0.45;
+        if (sustainedFlatAir) {
+            fail(player, state, "air_flat_cruise", horizontal, 0.45);
+            return;
         }
 
         double effectiveHorizontalBuffer = state.airHorizontalBuffer + state.groundSpoofBuffer;

@@ -227,45 +227,11 @@ public final class AntiFlyFabric implements ModInitializer {
                         }
                     }
                     return 1;
-                })
-                    .then(settingNode("groundWalkMax"))
-                    .then(settingNode("groundMountedMax"))
-                    .then(settingNode("waterMax"))
-                    .then(settingNode("waterVerticalMax"))
-                    .then(settingNode("maxAirHorizontal"))
-                    .then(settingNode("maxAirVertical"))
-                    .then(settingNode("bufferDecay"))
-                    .then(settingNode("horizontalBufferLimit"))
-                    .then(settingNode("verticalBufferLimit"))
-                    .then(settingNode("hoverBufferLimit"))
-                    .then(settingNode("noFallDetectionEnabled"))
-                    .then(settingNode("airNonFallTicksLimit"))
-                    .then(settingNode("setbackCooldownMs"))
-                    .then(settingNode("elytraBoostGraceTicks"))
-                    .then(settingNode("elytraMovementBufferLimit"))
-                    .then(settingNode("elytraDurabilityCheckEnabled"))
-                    .then(settingNode("airSpeed"))
-                    .then(settingNode("airVertical"))
-                    .then(settingNode("airNonFallTicks"))
-                    .then(settingNode("antiKickWindowTicks"))
-                    .then(settingNode("antiKickMinDescent"))
-                    .then(settingNode("waterSpeed"))
-                    .then(settingNode("waterVertical"))
-                    .then(settingNode("groundSpeedWalking"))
-                    .then(settingNode("groundSpeedMounted"))
-                    .then(settingNode("vehicleFallMinDescent"))
-                    .then(settingNode("vehicleFallMaxHorizontal"))
-                    .then(settingNode("vehicleFallTicksMax"))
-                    .then(settingNode("elytraEnabled"))
-                    .then(settingNode("elytraMaxHorizontal"))
-                    .then(settingNode("elytraMaxUp"))
-                    .then(settingNode("elytraMaxDown"))
-                    .then(settingNode("elytraStallHorizontalMax"))
-                    .then(settingNode("elytraStallVerticalMax"))
-                    .then(settingNode("elytraStallTicks"))
-                    .then(settingNode("elytraSlowdownMinSpeed"))
-                    .then(settingNode("elytraSlowdownMinScale"))
-                    .then(settingNode("elytraSlowdownGraceTicks")))
+                })                    .then(Commands.argument("key", StringArgumentType.word())
+                        .suggests((ctx, builder) -> net.minecraft.commands.SharedSuggestionProvider.suggest(SET_KEYS, builder))
+                        .executes(ctx -> getValue(ctx.getSource(), StringArgumentType.getString(ctx, "key")))
+                        .then(Commands.argument("value", DoubleArgumentType.doubleArg(0))
+                            .executes(ctx -> setValue(ctx.getSource(), StringArgumentType.getString(ctx, "key"), DoubleArgumentType.getDouble(ctx, "value"))))))
             );
         });
 
@@ -424,6 +390,14 @@ public final class AntiFlyFabric implements ModInitializer {
                     maxAllowed *= 1.5;
                 }
                 sendDebugActionBar(player, state, "GROUND", horizontal, deltaY, maxAllowed, 0.0);
+                // Reject fast movement that still reports airborne while collision support makes the position look grounded.
+                if (!clientOnGround && horizontal > maxAllowed) {
+                    Vec3 target = state.lastGroundPos != null ? state.lastGroundPos : pos;
+                    rubberBand(player, state, target, "ground_spoof_speed", horizontal, maxAllowed);
+                    state.lastPos = pos;
+                    state.wasGliding = false;
+                    return;
+                }
                 if (state.glideGroundGraceTicks <= 0 && horizontal > maxAllowed) {
                     Vec3 target = state.lastGroundPos != null ? state.lastGroundPos : pos;
                     rubberBand(player, state, target, "ground_speed", horizontal, maxAllowed);
@@ -492,8 +466,7 @@ public final class AntiFlyFabric implements ModInitializer {
             // Ignore mid-air jump detection; we only care about prolonged hovering.
             boolean hoveringStill = !serverOnGround
                 && state.airTicks > AntiFlyConstants.MAX_AIR_TICKS
-                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON
-                && hoverHorizontal <= AntiFlyConstants.HOVER_HORIZONTAL_EPSILON;
+                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON;
             if (hoveringStill) {
                 state.hoverTicks++;
                 if (state.hoverTicks > AntiFlyConstants.HOVER_TICKS) {
@@ -521,6 +494,17 @@ public final class AntiFlyFabric implements ModInitializer {
             state.airSessionTicks++;
             if (deltaY < 0.0) {
                 state.airSessionDescent += -deltaY;
+            }
+            boolean sustainedAirPlane = config.noFallDetectionEnabled
+                && state.airSessionTicks >= 12
+                && state.airSessionDescent < Math.max(0.15, config.antiKickMinDescent)
+                && horizontal >= 0.45;
+            if (sustainedAirPlane) {
+                Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
+                rubberBand(player, state, target, "air_plane", state.airSessionDescent, config.antiKickMinDescent);
+                state.lastPos = pos;
+                state.wasGliding = false;
+                return;
             }
             if (config.noFallDetectionEnabled && state.airSessionTicks >= config.antiKickWindowTicks) {
                 if (state.airSessionDescent < config.antiKickMinDescent) {

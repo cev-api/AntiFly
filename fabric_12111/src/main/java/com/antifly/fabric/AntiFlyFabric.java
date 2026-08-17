@@ -411,7 +411,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 double deltaY = pos.y - state.lastPos.y;
                 double horizontal = horizontalDistance(state.lastPos, pos);
                 double maxAllowed = maxGroundSpeed(player);
-                if (!state.lastServerOnGround) {
+                if (!state.lastServerOnGround && state.wasGliding) {
                     state.glideGroundGraceTicks = Math.max(state.glideGroundGraceTicks,
                         AntiFlyConstants.GLIDE_GROUND_GRACE_TICKS);
                 }
@@ -419,6 +419,14 @@ public final class AntiFlyFabric implements ModInitializer {
                     maxAllowed *= 1.5;
                 }
                 sendDebugActionBar(player, state, "GROUND", horizontal, deltaY, maxAllowed, 0.0);
+                // Reject fast movement that still reports airborne while collision support makes the position look grounded.
+                if (!clientOnGround && horizontal > maxAllowed) {
+                    Vec3 target = state.lastGroundPos != null ? state.lastGroundPos : pos;
+                    rubberBand(player, state, target, "ground_spoof_speed", horizontal, maxAllowed);
+                    state.lastPos = pos;
+                    state.wasGliding = false;
+                    return;
+                }
                 if (state.glideGroundGraceTicks <= 0 && state.lastServerOnGround && horizontal > maxAllowed) {
                     Vec3 target = state.lastGroundPos != null ? state.lastGroundPos : pos;
                     rubberBand(player, state, target, "ground_speed", horizontal, maxAllowed);
@@ -487,8 +495,7 @@ public final class AntiFlyFabric implements ModInitializer {
             // Ignore mid-air jump detection; we only care about prolonged hovering.
             boolean hoveringStill = !serverOnGround
                 && state.airTicks > AntiFlyConstants.MAX_AIR_TICKS
-                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON
-                && hoverHorizontal <= AntiFlyConstants.HOVER_HORIZONTAL_EPSILON;
+                && Math.abs(deltaY) <= AntiFlyConstants.HOVER_DELTA_Y_EPSILON;
             if (hoveringStill) {
                 state.hoverTicks++;
                 if (state.hoverTicks > AntiFlyConstants.HOVER_TICKS) {
@@ -516,6 +523,17 @@ public final class AntiFlyFabric implements ModInitializer {
             state.airSessionTicks++;
             if (deltaY < 0.0) {
                 state.airSessionDescent += -deltaY;
+            }
+            boolean sustainedAirPlane = config.noFallDetectionEnabled
+                && state.airSessionTicks >= 12
+                && state.airSessionDescent < Math.max(0.15, config.antiKickMinDescent)
+                && horizontal >= 0.45;
+            if (sustainedAirPlane) {
+                Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
+                rubberBand(player, state, target, "air_plane", state.airSessionDescent, config.antiKickMinDescent);
+                state.lastPos = pos;
+                state.wasGliding = false;
+                return;
             }
             if (config.noFallDetectionEnabled && state.airSessionTicks >= config.antiKickWindowTicks) {
                 if (state.airSessionDescent < config.antiKickMinDescent) {
@@ -888,6 +906,7 @@ public final class AntiFlyFabric implements ModInitializer {
             case "air_hover" -> "hoverBufferLimit";
             case "air_time" -> "airNonFallTicksLimit";
             case "air_antikick" -> "antiKickWindowTicks/antiKickMinDescent";
+            case "air_plane" -> "airNonFallTicksLimit/antiKickMinDescent";
             case "void_fall" -> "voidFallTicks";
             case "vehicle_flight" -> "vehicleAirGraceTicks/boatAirGraceTicks/horseAirGraceTicks";
             case "elytra_speed" -> "elytraMaxHorizontal/elytraNoRocketSustainableHorizontal";

@@ -363,7 +363,13 @@ public final class AntiFlyPlugin extends JavaPlugin {
     }
 
     static String normalizeSettingKey(String key) {
-        return switch (key) {
+        if (key == null) return "";
+        String inputKey = key.trim();
+        if (inputKey.equalsIgnoreCase("groundWalkMax")) return "groundWalkMax";
+        if (inputKey.equalsIgnoreCase("groundMountedMax")) return "groundMountedMax";
+        if (inputKey.equalsIgnoreCase("waterMax")) return "waterMax";
+        if (inputKey.equalsIgnoreCase("waterVerticalMax")) return "waterVerticalMax";
+        return switch (inputKey) {
             case "airSpeed", "maxAirHorizontal" -> "maxAirHorizontal";
             case "airVertical", "maxAirVertical" -> "maxAirVertical";
             case "airNonFallTicks", "airNonFallTicksLimit" -> "airNonFallTicksLimit";

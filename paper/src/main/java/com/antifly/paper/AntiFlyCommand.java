@@ -205,7 +205,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
                 if (args.length == 2) {
-                    String key = AntiFlyPlugin.normalizeSettingKey(args[1]);
+                    String key = canonicalSettingKey(args[1]);
                     String value = formatSettingValue(plugin.getSettings(), key);
                     if (value == null) {
                         sender.sendMessage(ChatColor.RED + "Unknown key.");
@@ -218,7 +218,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage(ChatColor.YELLOW + "Usage: /antifly set <key> <value>");
                     return true;
                 }
-                String key = AntiFlyPlugin.normalizeSettingKey(args[1]);
+                String key = canonicalSettingKey(args[1]);
                 double value;
                 try {
                     value = Double.parseDouble(args[2]);
@@ -335,6 +335,13 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             }
         }
         return List.copyOf(names);
+    }
+
+    private String canonicalSettingKey(String input) {
+        for (String key : SET_KEYS) {
+            if (key.equalsIgnoreCase(input)) return key;
+        }
+        return AntiFlyPlugin.normalizeSettingKey(input);
     }
 
     private String formatSettingValue(AntiFlyPlugin.Settings s, String key) {

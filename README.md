@@ -4,10 +4,13 @@
 
 Lightweight Paper + Fabric flight-control plugin by CevAPI.
 
+Current release: `1.1.1`
+
 AntiFly is not a full anti-cheat. It focuses on flight and movement abuse with layered checks:
 - server-authorized flight state
 - server-side ground/support truth
 - buffered air/hover/anti-kick suspicion
+- ground-flag spoof and sustained flat-air cruise detection
 - disciplined setbacks to last known valid support
 - Elytra-specific movement and boost sanity checks
 
@@ -61,8 +64,15 @@ Debug:
 
 ### Fabric
 Requires moderator-level command permission.
-- `/antifly` command family is available with equivalent core controls.
+- `/antifly enable` / `/antifly disable`
+- `/antifly status`
+- `/antifly help`
+- `/antifly alerts <off|game|console|both>`
+- `/antifly debug on|off`
+- `/antifly exempt <player>` / `/antifly unexempt <player>`
+- `/antifly reset <player>`
 - `/antifly disabledworlds <worldName> <true|false>`
+- `/antifly set` lists supported settings; `/antifly set <key> <value>` changes one.
 
 ## Primary settings keys (Paper)
 - `groundWalkMax`
@@ -105,6 +115,8 @@ Legacy aliases kept for backward compatibility:
 ## Notes on Elytra
 - Rocket-assisted glide is tracked separately from no-rocket glide.
 - No-rocket controlled upward/flat cruise behavior is treated as suspicious and can be blocked.
+- Repeated movement ground-flag spoofing cannot continually refresh Elytra landing grace.
+- Sustained flat-air movement is blocked after 12 air ticks when horizontal movement reaches 0.45 blocks per tick.
 - Rare fluid-exit and early-glide pull-up transitions are given short grace windows to reduce false positives.
 
 ## Permissions (Paper)
