@@ -48,6 +48,17 @@ public final class AntiFlyPlugin extends JavaPlugin {
         return antiFlyEnabled;
     }
 
+    boolean isHungerModeEnabled() {
+        return settings.hungerModeEnabled;
+    }
+
+    void setHungerModeEnabled(boolean enabled) {
+        settings.hungerModeEnabled = enabled;
+        FileConfiguration config = getConfig();
+        config.set("hungerMode.enabled", enabled);
+        saveConfig();
+    }
+
     boolean isWorldEnabled(String worldName) {
         if (worldName == null) {
             return true;
@@ -224,6 +235,12 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("antiFly.noFallDetectionEnabled", true);
         config.addDefault("antiFly.alertMode", "both");
 
+        config.addDefault("hungerMode.enabled", false);
+        config.addDefault("hungerMode.maxBlocksPerSecond", 200.0);
+        config.addDefault("hungerMode.hungerPerSecondAtMaxSpeed", 20.0);
+        config.addDefault("hungerMode.rocketGraceTicks", 80);
+        config.addDefault("hungerMode.airborneMinimumBlocksPerSecond", 20.0);
+
         config.addDefault("elytra.enabled", true);
         config.addDefault("elytra.boostGraceTicks", 80);
         config.addDefault("elytra.toggleGraceTicks", 10);
@@ -288,6 +305,12 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.noFallDetectionEnabled = config.getBoolean("antiFly.noFallDetectionEnabled", true);
         settings.alertMode = AlertMode.fromString(config.getString("antiFly.alertMode", "both"), AlertMode.BOTH);
 
+        settings.hungerModeEnabled = config.getBoolean("hungerMode.enabled", false);
+        settings.hungerModeMaxBlocksPerSecond = Math.max(1.0, config.getDouble("hungerMode.maxBlocksPerSecond", 200.0));
+        settings.hungerModeHungerPerSecondAtMaxSpeed = Math.max(0.0, config.getDouble("hungerMode.hungerPerSecondAtMaxSpeed", 20.0));
+        settings.hungerModeRocketGraceTicks = Math.max(0, config.getInt("hungerMode.rocketGraceTicks", 80));
+        settings.hungerModeAirborneMinimumBlocksPerSecond = Math.max(0.0, config.getDouble("hungerMode.airborneMinimumBlocksPerSecond", 20.0));
+
         settings.elytraEnabled = config.getBoolean("elytra.enabled", true);
         settings.elytraBoostGraceTicks = config.getInt("elytra.boostGraceTicks", 80);
         settings.elytraToggleGraceTicks = config.getInt("elytra.toggleGraceTicks", 10);
@@ -347,6 +370,12 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("antiFly.boatAirGraceTicks", settings.boatAirGraceTicks);
         config.set("antiFly.horseAirGraceTicks", settings.horseAirGraceTicks);
         config.set("antiFly.setbackCooldownMs", settings.setbackCooldownMs);
+
+        config.set("hungerMode.enabled", settings.hungerModeEnabled);
+        config.set("hungerMode.maxBlocksPerSecond", settings.hungerModeMaxBlocksPerSecond);
+        config.set("hungerMode.hungerPerSecondAtMaxSpeed", settings.hungerModeHungerPerSecondAtMaxSpeed);
+        config.set("hungerMode.rocketGraceTicks", settings.hungerModeRocketGraceTicks);
+        config.set("hungerMode.airborneMinimumBlocksPerSecond", settings.hungerModeAirborneMinimumBlocksPerSecond);
 
         config.set("elytra.enabled", settings.elytraEnabled);
         config.set("elytra.boostGraceTicks", settings.elytraBoostGraceTicks);
@@ -475,6 +504,12 @@ public final class AntiFlyPlugin extends JavaPlugin {
         boolean noFallDetectionEnabled;
         AlertMode alertMode;
 
+        boolean hungerModeEnabled;
+        double hungerModeMaxBlocksPerSecond;
+        double hungerModeHungerPerSecondAtMaxSpeed;
+        int hungerModeRocketGraceTicks;
+        double hungerModeAirborneMinimumBlocksPerSecond;
+
         boolean elytraEnabled;
         int elytraBoostGraceTicks;
         int elytraToggleGraceTicks;
@@ -567,6 +602,8 @@ public final class AntiFlyPlugin extends JavaPlugin {
         int glideNoRocketWindowTicks;
         int lastRocketTick;
         long lastRocketUseMs;
+        long lastHungerUpdateMs;
+        double hungerDebt;
         double glideWindowHorizontal;
         double glideWindowDescent;
         double glideWindowAscent;

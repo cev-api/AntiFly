@@ -36,6 +36,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.item.Items;
+import net.minecraft.stats.Stats;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.state.BlockState;
@@ -107,6 +108,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 .then(Commands.literal("help").executes(ctx -> {
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly enable"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly disable"), false);
+                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly hungermode <on|off>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly status"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly alerts <off|game|console|both>"), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("/antifly debug <on|off>"), false);
@@ -131,8 +133,16 @@ public final class AntiFlyFabric implements ModInitializer {
                     ctx.getSource().sendSuccess(() -> Component.literal("AntiFly disabled."), false);
                     return 1;
                 }))
+                .then(Commands.literal("hungermode")
+                    .then(Commands.literal("on").executes(ctx -> setHungerMode(ctx.getSource(), true)))
+                    .then(Commands.literal("off").executes(ctx -> setHungerMode(ctx.getSource(), false)))
+                    .executes(ctx -> {
+                        ctx.getSource().sendSuccess(() -> Component.literal("Hunger Mode is " + (config.hungerModeEnabled ? "on" : "off")), false);
+                        return 1;
+                    }))
                 .then(Commands.literal("status").executes(ctx -> {
                     ctx.getSource().sendSuccess(() -> Component.literal("AntiFly: " + (config.enabled ? "enabled" : "disabled")), false);
+                    ctx.getSource().sendSuccess(() -> Component.literal("Hunger Mode: " + (config.hungerModeEnabled ? "enabled" : "disabled")), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("Disabled worlds: "
                         + (config.disabledWorlds.isEmpty() ? "(none)" : String.join(", ", config.disabledWorlds))), false);
                     ctx.getSource().sendSuccess(() -> Component.literal("Alerts: mode=" + config.alertMode), false);
@@ -245,6 +255,46 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private volatile boolean modrinthCheckedOnStartup = false;
 
+    private void applyHungerMode(ServerPlayer player, PlayerState state, Vec3 pos) {
+        int fireworkUses = player.getStats().getValue(Stats.ITEM_USED.get(Items.FIREWORK_ROCKET));
+        if (state.lastFireworkUses >= 0 && fireworkUses > state.lastFireworkUses && player.isFallFlying()) {
+            state.rocketGraceTicks = config.hungerModeRocketGraceTicks;
+        }
+        state.lastFireworkUses = fireworkUses;
+
+        double horizontal = state.lastPos == null ? 0.0 : horizontalDistance(state.lastPos, pos);
+        double speedBlocksPerSecond = horizontal * 20.0;
+        if (!hasGroundSupport(player) && !isInFluid(player) && !player.isPassenger()) {
+            speedBlocksPerSecond = Math.max(speedBlocksPerSecond, config.hungerModeAirborneMinimumBlocksPerSecond);
+        }
+        double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / config.hungerModeMaxBlocksPerSecond);
+        double hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed * normalizedSpeed * normalizedSpeed / 20.0;
+
+        boolean recentRocket = player.isFallFlying() && state.rocketGraceTicks > 0;
+        if (recentRocket) {
+            hungerLoss = 0.0;
+        } else if (player.isFallFlying()) {
+            hungerLoss *= 0.5;
+        }
+        if (state.rocketGraceTicks > 0) {
+            state.rocketGraceTicks--;
+        }
+
+        state.hungerDebt += hungerLoss;
+        int wholeFoodPoints = (int) state.hungerDebt;
+        if (wholeFoodPoints > 0) {
+            player.getFoodData().setFoodLevel(Math.max(0, player.getFoodData().getFoodLevel() - wholeFoodPoints));
+            state.hungerDebt -= wholeFoodPoints;
+        }
+    }
+
+    private int setHungerMode(net.minecraft.commands.CommandSourceStack source, boolean enabled) {
+        config.hungerModeEnabled = enabled;
+        saveConfig();
+        source.sendSuccess(() -> Component.literal("Hunger Mode " + (enabled ? "enabled: AntiFly checks are bypassed." : "disabled.")), false);
+        return 1;
+    }
+
     private void handlePlayerTick(ServerPlayer player) {
         PlayerState state = states.computeIfAbsent(player.getUUID(), ignored -> new PlayerState());
         Vec3 pos = player.position();
@@ -254,7 +304,7 @@ public final class AntiFlyFabric implements ModInitializer {
             return;
         }
 
-        if (!config.enabled || isWorldDisabled(player.level())) {
+        if ((!config.enabled && !config.hungerModeEnabled) || isWorldDisabled(player.level())) {
             boolean inFluid = isInFluid(player);
             boolean serverOnGround = hasGroundSupport(player);
             resetTransientState(state);
@@ -262,6 +312,18 @@ public final class AntiFlyFabric implements ModInitializer {
             state.lastPos = pos;
             state.lastServerOnGround = serverOnGround;
             state.wasGliding = false;
+            return;
+        }
+
+        state.hungerDebt = 0.0;
+        state.rocketGraceTicks = 0;
+
+        if (config.hungerModeEnabled) {
+            applyHungerMode(player, state, pos);
+            resetTransientState(state);
+            state.lastPos = pos;
+            state.lastServerOnGround = hasGroundSupport(player);
+            state.wasGliding = player.isFallFlying();
             return;
         }
 
@@ -1379,6 +1441,11 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private static final class AntiFlyConfig {
         boolean enabled = true;
+        boolean hungerModeEnabled = false;
+        double hungerModeMaxBlocksPerSecond = 200.0;
+        double hungerModeHungerPerSecondAtMaxSpeed = 20.0;
+        int hungerModeRocketGraceTicks = 80;
+        double hungerModeAirborneMinimumBlocksPerSecond = 20.0;
         double groundWalkMax = AntiFlyConstants.DEFAULT_GROUND_WALK_MAX;
         double groundMountedMax = AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX;
         double vehicleFallMinDescent = AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT;
@@ -1483,5 +1550,8 @@ public final class AntiFlyFabric implements ModInitializer {
         double vehicleFallHorizontalDistance;
         boolean wasInVehicle;
         long lastRubberBandAtMs;
+        int lastFireworkUses = -1;
+        int rocketGraceTicks;
+        double hungerDebt;
     }
 }

@@ -42,6 +42,7 @@ Requires op or `antifly.admin`.
 Core:
 - `/antifly enable`
 - `/antifly disable`
+- `/antifly hungermode <on|off>`
 - `/antifly status`
 - `/antifly help`
 - `/antifly exempt <player>`
@@ -111,6 +112,15 @@ Legacy aliases kept for backward compatibility:
 - `waterSpeed`, `waterVertical`
 - `airSpeed`, `airVertical`, `airNonFallTicks`
 - `elytraMovementLimit`
+
+## Hunger Mode
+- Enable with `/antifly hungermode on`. It bypasses every AntiFly enforcement check in enabled worlds.
+- Moving consumes food quadratically by horizontal speed, capped at 200 blocks/second. The default 200 BPS rate is 20 food points per second.
+- Unsupported players have a server-side minimum penalty equivalent to 20 BPS, including stationary hovering. This does not use the client `onGround` flag, so AntiHunger packet spoofing cannot bypass it.
+- Rocket-propelled Elytra movement has no Hunger Mode cost during the configured 80-tick rocket grace window. Unassisted Elytra gliding costs half the normal amount.
+- The server cannot reliably distinguish legitimate unassisted glide energy from Elytra-flight cheats, so all no-rocket Elytra gliding receives the same half-rate treatment.
+- Paper config: `hungerMode.enabled`, `hungerMode.maxBlocksPerSecond`, `hungerMode.hungerPerSecondAtMaxSpeed`, `hungerMode.rocketGraceTicks`, and `hungerMode.airborneMinimumBlocksPerSecond`.
+- Fabric config: `hungerModeEnabled`, `hungerModeMaxBlocksPerSecond`, `hungerModeHungerPerSecondAtMaxSpeed`, `hungerModeRocketGraceTicks`, and `hungerModeAirborneMinimumBlocksPerSecond`.
 
 ## Notes on Elytra
 - Rocket-assisted glide is tracked separately from no-rocket glide.

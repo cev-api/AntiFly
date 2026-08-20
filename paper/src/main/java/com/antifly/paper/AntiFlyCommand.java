@@ -16,7 +16,7 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
 public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
-    private static final List<String> ROOT = List.of("help", "enable", "disable", "status", "alerts", "debug", "exempt", "unexempt", "disabledworlds", "set", "reset");
+    private static final List<String> ROOT = List.of("help", "enable", "disable", "hungermode", "status", "alerts", "debug", "exempt", "unexempt", "disabledworlds", "set", "reset");
     private static final List<String> SET_KEYS = List.of(
         "groundWalkMax", "groundMountedMax", "waterMax", "waterVerticalMax", "boatMaxHorizontal",
         "maxAirHorizontal", "maxAirVertical", "bufferDecay", "horizontalBufferLimit", "verticalBufferLimit",
@@ -54,6 +54,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.AQUA + "Control");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly enable");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly disable");
+                sender.sendMessage(ChatColor.YELLOW + "  /antifly hungermode <on|off>");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly status");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly alerts <off|game|console|both>");
                 sender.sendMessage(ChatColor.AQUA + "Player");
@@ -79,11 +80,28 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.RED + "AntiFly disabled.");
                 return true;
             }
+            case "hungermode" -> {
+                if (args.length < 2) {
+                    sender.sendMessage(ChatColor.YELLOW + "Hunger Mode is " + (plugin.isHungerModeEnabled() ? "on" : "off"));
+                    sender.sendMessage(ChatColor.YELLOW + "Usage: /antifly hungermode <on|off>");
+                    return true;
+                }
+                boolean enabled = args[1].equalsIgnoreCase("on") || args[1].equalsIgnoreCase("enable");
+                boolean disabled = args[1].equalsIgnoreCase("off") || args[1].equalsIgnoreCase("disable");
+                if (!enabled && !disabled) {
+                    sender.sendMessage(ChatColor.YELLOW + "Usage: /antifly hungermode <on|off>");
+                    return true;
+                }
+                plugin.setHungerModeEnabled(enabled);
+                sender.sendMessage((enabled ? ChatColor.RED : ChatColor.GREEN) + "Hunger Mode " + (enabled ? "enabled: AntiFly checks are bypassed." : "disabled."));
+                return true;
+            }
             case "status" -> {
                 AntiFlyPlugin.Settings s = plugin.getSettings();
                 sender.sendMessage(ChatColor.GOLD + "AntiFly Status");
                 sender.sendMessage(ChatColor.GRAY + "State: "
                     + (plugin.isAntiFlyEnabled() ? ChatColor.GREEN + "ENABLED" : ChatColor.RED + "DISABLED"));
+                sender.sendMessage(ChatColor.GRAY + "Hunger Mode: " + (plugin.isHungerModeEnabled() ? ChatColor.RED + "ENABLED" : ChatColor.GREEN + "DISABLED"));
                 sender.sendMessage(ChatColor.GRAY + "Disabled worlds: " + ChatColor.WHITE
                     + (s.disabledWorlds.isEmpty() ? "(none)" : String.join(", ", s.disabledWorlds)));
 
@@ -285,6 +303,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             return null;
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("debug")) {
+            return filter(List.of("on", "off"), args[1]);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("hungermode")) {
             return filter(List.of("on", "off"), args[1]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("alerts")) {

@@ -93,6 +93,19 @@ public final class AntiFlyListener implements Listener {
             state.fluidExitGraceTicks--;
         }
 
+        if (plugin.isHungerModeEnabled() && plugin.isWorldEnabled(player.getWorld().getName())) {
+            applyHungerMode(player, state, from, to, serverOnGround || isSupportedByCollisionLikeBlock(to), inFluid || inBoatWater, inVehicle);
+            resetAirFlags(state);
+            resetElytraBuffers(state);
+            updateSupport(state, serverOnGround, inFluid, to);
+            state.lastPos = to.clone();
+            state.wasGliding = player.isGliding();
+            return;
+        }
+
+        state.lastHungerUpdateMs = 0L;
+        state.hungerDebt = 0.0;
+
         if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
             resetAirFlags(state);
             resetElytraBuffers(state);
@@ -189,6 +202,45 @@ public final class AntiFlyListener implements Listener {
     @EventHandler
     public void onRespawn(PlayerRespawnEvent event) {
         resetState(plugin.getState(event.getPlayer()), event.getRespawnLocation());
+    }
+
+    private void applyHungerMode(Player player, AntiFlyPlugin.PlayerState state, Location from, Location to,
+                                 boolean hasPhysicalSupport, boolean inFluid, boolean inVehicle) {
+        long nowMs = System.currentTimeMillis();
+        if (state.lastHungerUpdateMs == 0L) {
+            state.lastHungerUpdateMs = nowMs;
+            return;
+        }
+
+        double elapsedSeconds = Math.min(0.25, Math.max(0.0, (nowMs - state.lastHungerUpdateMs) / 1000.0));
+        state.lastHungerUpdateMs = nowMs;
+        if (elapsedSeconds <= 0.0) {
+            return;
+        }
+
+        AntiFlyPlugin.Settings settings = plugin.getSettings();
+        double speedBlocksPerSecond = horizontalDistance(from, to) / elapsedSeconds;
+        if (!hasPhysicalSupport && !inFluid && !inVehicle) {
+            speedBlocksPerSecond = Math.max(speedBlocksPerSecond, settings.hungerModeAirborneMinimumBlocksPerSecond);
+        }
+        double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / settings.hungerModeMaxBlocksPerSecond);
+        double hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
+            * normalizedSpeed * normalizedSpeed * elapsedSeconds;
+
+        boolean recentRocket = player.isGliding()
+            && nowMs - state.lastRocketUseMs <= settings.hungerModeRocketGraceTicks * 50L;
+        if (recentRocket) {
+            hungerLoss = 0.0;
+        } else if (player.isGliding()) {
+            hungerLoss *= 0.5;
+        }
+
+        state.hungerDebt += hungerLoss;
+        int wholeFoodPoints = (int) state.hungerDebt;
+        if (wholeFoodPoints > 0) {
+            player.setFoodLevel(Math.max(0, player.getFoodLevel() - wholeFoodPoints));
+            state.hungerDebt -= wholeFoodPoints;
+        }
     }
 
     private void handleGroundMovement(Player player, AntiFlyPlugin.PlayerState state, Location from, Location to) {
