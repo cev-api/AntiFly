@@ -53,11 +53,14 @@ Core:
 - `/antifly set <key> <value>`
 - `/antifly reset <player>`
 
-Hunger Mode tuning:
+Hunger Mode:
 - `hungerModeMaxBlocksPerSecond` - normalized-speed cap (default 200)
-- `hungerModeHungerPerSecondAtMaxSpeed` - food/sec at max speed (default 20)
+- `hungerModeHungerPerSecondAtMaxSpeed` - food/sec at max speed (default 10)
 - `hungerModeRocketGraceTicks` - free drain window after a firework (default 80)
 - `hungerModeAirborneMinimumBlocksPerSecond` - hover floor (default 20)
+- `hungerModeFlightDamageEnabled` - real-health damage after sustained flight, on/off (default true)
+- `hungerModeFlightDamageAfterSeconds` - airborne seconds before damage starts (default 30)
+- `hungerModeFlightDamagePerSecond` - health lost per second after the delay (default 1)
 
 Alerts:
 - `/antifly alerts <off|game|console|both>`
@@ -125,6 +128,7 @@ Legacy aliases kept for backward compatibility:
 - Unsupported players have a server-side minimum penalty equivalent to 20 BPS, including stationary hovering. This does not use the client `onGround` flag, so AntiHunger packet spoofing cannot bypass it.
 - Hovering in a vehicle is only exempt while the vehicle itself is supported (boat on water/ground, mount standing); flying in a boat is penalized like any other unsupported flight.
 - Rocket-propelled Elytra movement has no Hunger Mode cost during the configured 80-tick rocket grace window. Unassisted Elytra gliding costs half the normal amount, but only while actually moving - hovering with an Elytra drains at the normal hover rate.
+- Sustained unsupported flight deals real health damage: after `hungerMode.flightDamageAfterSeconds` (default 30) of continuous flight without support, players take `hungerMode.flightDamagePerSecond` (default 1) damage per second. The counter resets the moment they touch ground/support, so stacking food cannot sustain an endless flight - food restores hunger, not health. Toggle with `hungerMode.flightDamageEnabled` (default true).
 - The server cannot reliably distinguish legitimate unassisted glide energy from Elytra-flight cheats, so all no-rocket Elytra gliding receives the same half-rate treatment.
 
 ## Notes on Elytra

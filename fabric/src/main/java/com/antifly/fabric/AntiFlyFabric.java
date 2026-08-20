@@ -295,6 +295,26 @@ public final class AntiFlyFabric implements ModInitializer {
             state.rocketGraceTicks--;
         }
 
+        // Sustained unsupported flight deals real health damage after the
+        // configured delay, so carrying stacks of food cannot sustain an
+        // endless flight - food restores hunger, not the health being lost.
+        if (config.hungerModeFlightDamageEnabled) {
+            if (unsupported) {
+                state.flightAirborneTicks++;
+                int thresholdTicks = (int) Math.round(config.hungerModeFlightDamageAfterSeconds * 20.0);
+                if (state.flightAirborneTicks > thresholdTicks) {
+                    float dmg = (float) (config.hungerModeFlightDamagePerSecond / 20.0);
+                    if (dmg > 0.0f) {
+                        player.hurt(player.damageSources().starve(), dmg);
+                    }
+                }
+            } else {
+                state.flightAirborneTicks = 0;
+            }
+        } else {
+            state.flightAirborneTicks = 0;
+        }
+
         state.hungerDebt += hungerLoss;
         int wholeFoodPoints = (int) state.hungerDebt;
         if (wholeFoodPoints > 0) {
@@ -329,6 +349,7 @@ public final class AntiFlyFabric implements ModInitializer {
             state.wasGliding = false;
             state.hungerDebt = 0.0;
             state.rocketGraceTicks = 0;
+            state.flightAirborneTicks = 0;
             return;
         }
 
@@ -348,6 +369,7 @@ public final class AntiFlyFabric implements ModInitializer {
         // would never drain).
         state.hungerDebt = 0.0;
         state.rocketGraceTicks = 0;
+        state.flightAirborneTicks = 0;
 
         boolean inFluid = isInFluid(player);
         boolean inVehicle = player.isPassenger();
@@ -1148,6 +1170,9 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hungerModeHungerPerSecondAtMaxSpeed" -> config.hungerModeHungerPerSecondAtMaxSpeed = Math.max(0.0, value);
             case "hungerModeRocketGraceTicks" -> config.hungerModeRocketGraceTicks = Math.max(0, (int) Math.round(value));
             case "hungerModeAirborneMinimumBlocksPerSecond" -> config.hungerModeAirborneMinimumBlocksPerSecond = Math.max(0.0, value);
+            case "hungerModeFlightDamageEnabled" -> config.hungerModeFlightDamageEnabled = value > 0.5;
+            case "hungerModeFlightDamageAfterSeconds" -> config.hungerModeFlightDamageAfterSeconds = Math.max(0.0, value);
+            case "hungerModeFlightDamagePerSecond" -> config.hungerModeFlightDamagePerSecond = Math.max(0.0, value);
             default -> {
                 source.sendFailure(Component.literal("Unknown key."));
                 return 0;
@@ -1219,6 +1244,9 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hungerModeHungerPerSecondAtMaxSpeed" -> String.valueOf(config.hungerModeHungerPerSecondAtMaxSpeed);
             case "hungerModeRocketGraceTicks" -> String.valueOf(config.hungerModeRocketGraceTicks);
             case "hungerModeAirborneMinimumBlocksPerSecond" -> String.valueOf(config.hungerModeAirborneMinimumBlocksPerSecond);
+            case "hungerModeFlightDamageEnabled" -> String.valueOf(config.hungerModeFlightDamageEnabled);
+            case "hungerModeFlightDamageAfterSeconds" -> String.valueOf(config.hungerModeFlightDamageAfterSeconds);
+            case "hungerModeFlightDamagePerSecond" -> String.valueOf(config.hungerModeFlightDamagePerSecond);
             default -> null;
         };
     }
@@ -1258,7 +1286,10 @@ public final class AntiFlyFabric implements ModInitializer {
         "hungerModeMaxBlocksPerSecond",
         "hungerModeHungerPerSecondAtMaxSpeed",
         "hungerModeRocketGraceTicks",
-        "hungerModeAirborneMinimumBlocksPerSecond"
+        "hungerModeAirborneMinimumBlocksPerSecond",
+        "hungerModeFlightDamageEnabled",
+        "hungerModeFlightDamageAfterSeconds",
+        "hungerModeFlightDamagePerSecond"
     );
     private static final java.util.List<String> SET_ALIASES = java.util.List.of(
         "groundSpeed", "groundSpeedWalking", "groundSpeedMounted",
@@ -1280,6 +1311,9 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hunger_mode_hunger_per_second_at_max_speed", "hungerModeHungerPerSecond" -> "hungerModeHungerPerSecondAtMaxSpeed";
             case "hunger_mode_rocket_grace_ticks" -> "hungerModeRocketGraceTicks";
             case "hunger_mode_airborne_minimum_blocks_per_second", "hungerModeAirborneMinBps" -> "hungerModeAirborneMinimumBlocksPerSecond";
+            case "hunger_mode_flight_damage_enabled" -> "hungerModeFlightDamageEnabled";
+            case "hunger_mode_flight_damage_after_seconds" -> "hungerModeFlightDamageAfterSeconds";
+            case "hunger_mode_flight_damage_per_second" -> "hungerModeFlightDamagePerSecond";
             default -> key;
         };
     }
@@ -1484,6 +1518,9 @@ public final class AntiFlyFabric implements ModInitializer {
         double hungerModeHungerPerSecondAtMaxSpeed = 10.0;
         int hungerModeRocketGraceTicks = 80;
         double hungerModeAirborneMinimumBlocksPerSecond = 20.0;
+        boolean hungerModeFlightDamageEnabled = true;
+        double hungerModeFlightDamageAfterSeconds = 30.0;
+        double hungerModeFlightDamagePerSecond = 1.0;
         double groundWalkMax = AntiFlyConstants.DEFAULT_GROUND_WALK_MAX;
         double groundMountedMax = AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX;
         double vehicleFallMinDescent = AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT;
@@ -1591,5 +1628,6 @@ public final class AntiFlyFabric implements ModInitializer {
         int lastFireworkUses = -1;
         int rocketGraceTicks;
         double hungerDebt;
+        int flightAirborneTicks;
     }
 }

@@ -226,6 +226,7 @@ public final class AntiFlyListener implements Listener {
                 state.lastHungerSampleMs = 0L;
                 state.lastHungerSamplePos = null;
                 state.hungerDebt = 0.0;
+                state.flightAirborneSeconds = 0.0;
                 continue;
             }
 
@@ -282,6 +283,25 @@ public final class AntiFlyListener implements Listener {
                 hungerLoss = 0.0;
             } else if (gliding && rawSpeedBps >= settings.hungerModeAirborneMinimumBlocksPerSecond) {
                 hungerLoss *= 0.5;
+            }
+
+            // Sustained unsupported flight deals real health damage after the
+            // configured delay, so carrying stacks of food cannot sustain an
+            // endless flight - food restores hunger, not the health being lost.
+            if (settings.hungerModeFlightDamageEnabled) {
+                if (unsupported) {
+                    state.flightAirborneSeconds += elapsedSeconds;
+                    if (state.flightAirborneSeconds > settings.hungerModeFlightDamageAfterSeconds) {
+                        double dmg = settings.hungerModeFlightDamagePerSecond * elapsedSeconds;
+                        if (dmg > 0.0) {
+                            player.damage(dmg, org.bukkit.damage.DamageSource.builder(org.bukkit.damage.DamageType.STARVE).build());
+                        }
+                    }
+                } else {
+                    state.flightAirborneSeconds = 0.0;
+                }
+            } else {
+                state.flightAirborneSeconds = 0.0;
             }
 
             state.hungerDebt += hungerLoss;

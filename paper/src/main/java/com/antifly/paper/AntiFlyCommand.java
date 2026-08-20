@@ -26,7 +26,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         "elytraStallTicks", "elytraMovementBufferLimit", "elytraDurabilityCheckEnabled",
         "elytraNoRocketMaxAscent", "elytraRequiredDescentForPullup",
         "elytraMaxRocketHorizontal", "elytraMaxRocketUp", "elytraNoRocketSustainableHorizontal", "elytraMaxNoRocketUp",
-        "hungerModeMaxBlocksPerSecond", "hungerModeHungerPerSecondAtMaxSpeed", "hungerModeRocketGraceTicks", "hungerModeAirborneMinimumBlocksPerSecond"
+        "hungerModeMaxBlocksPerSecond", "hungerModeHungerPerSecondAtMaxSpeed", "hungerModeRocketGraceTicks", "hungerModeAirborneMinimumBlocksPerSecond",
+        "hungerModeFlightDamageEnabled", "hungerModeFlightDamageAfterSeconds", "hungerModeFlightDamagePerSecond"
     );
     private final AntiFlyPlugin plugin;
 
@@ -402,6 +403,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "hungerModeHungerPerSecondAtMaxSpeed" -> String.valueOf(s.hungerModeHungerPerSecondAtMaxSpeed);
             case "hungerModeRocketGraceTicks" -> String.valueOf(s.hungerModeRocketGraceTicks);
             case "hungerModeAirborneMinimumBlocksPerSecond" -> String.valueOf(s.hungerModeAirborneMinimumBlocksPerSecond);
+            case "hungerModeFlightDamageEnabled" -> String.valueOf(s.hungerModeFlightDamageEnabled);
+            case "hungerModeFlightDamageAfterSeconds" -> String.valueOf(s.hungerModeFlightDamageAfterSeconds);
+            case "hungerModeFlightDamagePerSecond" -> String.valueOf(s.hungerModeFlightDamagePerSecond);
             default -> null;
         };
     }
