@@ -64,6 +64,7 @@ import org.slf4j.LoggerFactory;
 public final class AntiFlyFabric implements ModInitializer {
     public static final String MOD_ID = "antifly";
     private static final long LOG_COOLDOWN_MS = 500;
+    private static final double ELYTRA_HOVER_MAX_BPS = 2.0;
     private static final Logger LOGGER = LoggerFactory.getLogger("AntiFly");
     private static final Pattern VERSION_NUMBER_PATTERN = Pattern.compile("\"version_number\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern DATE_PUBLISHED_PATTERN = Pattern.compile("\"date_published\"\\s*:\\s*\"([^\"]+)\"");
@@ -277,19 +278,64 @@ public final class AntiFlyFabric implements ModInitializer {
             }
         }
         boolean unsupported = !hasGroundSupport(player) && !isInFluid(player) && !vehicleSupported;
-        double speedBlocksPerSecond = rawSpeedBps;
-        if (unsupported) {
-            speedBlocksPerSecond = Math.max(speedBlocksPerSecond, config.hungerModeAirborneMinimumBlocksPerSecond);
-        }
-        double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / config.hungerModeMaxBlocksPerSecond);
-        double hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed * normalizedSpeed * normalizedSpeed / 20.0;
 
         boolean gliding = player.isFallFlying();
         boolean recentRocket = gliding && state.rocketGraceTicks > 0;
+
+        // Elytra exploit detection: abnormal speed (> threshold), hover-hack
+        // (no horizontal movement), or gliding for a long time without any
+        // rocket. Vanilla gliding with rockets is never an exploit.
+        boolean glidingExploit = false;
+        if (gliding) {
+            if (recentRocket) {
+                state.glideNoRocketTicks = 0;
+            } else {
+                state.glideNoRocketTicks++;
+            }
+            boolean hovering = unsupported && rawSpeedBps < ELYTRA_HOVER_MAX_BPS;
+            int noRocketLimit = (int) Math.round(config.hungerModeElytraNoRocketAfterSeconds * 20.0);
+            glidingExploit = rawSpeedBps > config.hungerModeElytraSpeedThresholdBps
+                || hovering
+                || state.glideNoRocketTicks > noRocketLimit;
+        } else {
+            state.glideNoRocketTicks = 0;
+        }
+
+        double hungerLoss;
         if (recentRocket) {
             hungerLoss = 0.0;
-        } else if (gliding && rawSpeedBps >= config.hungerModeAirborneMinimumBlocksPerSecond) {
-            hungerLoss *= 0.5;
+        } else if (gliding) {
+            if (!config.hungerModeElytraFoodEnabled) {
+                // Elytra fully exempt from food drain.
+                hungerLoss = 0.0;
+            } else if (unsupported && rawSpeedBps < ELYTRA_HOVER_MAX_BPS) {
+                // Elytra hover-hack: hover penalty, same as hovering
+                // without an elytra.
+                double hoverNormalized = Math.min(1.0, config.hungerModeAirborneMinimumBlocksPerSecond
+                    / config.hungerModeMaxBlocksPerSecond);
+                hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed
+                    * hoverNormalized * hoverNormalized / 20.0;
+            } else if (glidingExploit) {
+                // Abnormal elytra speed or no-rocket exploit: speed-based
+                // drain (with elytra multiplier).
+                double normalizedSpeed = Math.min(1.0, rawSpeedBps / config.hungerModeMaxBlocksPerSecond);
+                hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed
+                    * normalizedSpeed * normalizedSpeed / 20.0
+                    * config.hungerModeElytraFoodMultiplier;
+            } else {
+                // Normal elytra gliding: no food drain.
+                hungerLoss = 0.0;
+            }
+        } else {
+            // Normal (non-elytra) movement: speed-based drain with the
+            // airborne minimum floor for unsupported players.
+            double speedBlocksPerSecond = rawSpeedBps;
+            if (unsupported) {
+                speedBlocksPerSecond = Math.max(speedBlocksPerSecond, config.hungerModeAirborneMinimumBlocksPerSecond);
+            }
+            double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / config.hungerModeMaxBlocksPerSecond);
+            hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed
+                * normalizedSpeed * normalizedSpeed / 20.0;
         }
         if (state.rocketGraceTicks > 0) {
             state.rocketGraceTicks--;
@@ -298,21 +344,57 @@ public final class AntiFlyFabric implements ModInitializer {
         // Sustained unsupported flight deals real health damage after the
         // configured delay, so carrying stacks of food cannot sustain an
         // endless flight - food restores hunger, not the health being lost.
+        // Health damage only follows hunger accumulation: for elytra the
+        // timer counts only while hunger is ACTIVELY draining, so the
+        // hunger phase always comes first and physical damage only starts
+        // if the exploit keeps going. Damage ticks are slow (every 2s,
+        // every 4s while descending) so fast hacks don't make it hectic,
+        // and landing is always survivable.
         if (config.hungerModeFlightDamageEnabled) {
-            if (unsupported) {
-                state.flightAirborneTicks++;
-                int thresholdTicks = (int) Math.round(config.hungerModeFlightDamageAfterSeconds * 20.0);
-                if (state.flightAirborneTicks > thresholdTicks) {
-                    float dmg = (float) (config.hungerModeFlightDamagePerSecond / 20.0);
-                    if (dmg > 0.0f) {
-                        player.hurt(player.damageSources().starve(), dmg);
+            boolean damageCounted = unsupported
+                && (!gliding || (config.hungerModeElytraDamageEnabled && glidingExploit));
+            if (damageCounted) {
+                if (gliding && recentRocket && config.hungerModeRocketResetsDamage) {
+                    state.flightAirborneTicks = 0;
+                    state.hungerDrainTicks = 0;
+                } else {
+                    if (gliding) {
+                        // Elytra: only count time while hunger is actually
+                        // draining (hungerLoss > 0), so health damage can
+                        // never skip the hunger phase.
+                        if (hungerLoss > 0.0) {
+                            state.hungerDrainTicks++;
+                        } else {
+                            state.hungerDrainTicks = 0;
+                        }
+                        state.flightAirborneTicks = state.hungerDrainTicks;
+                    } else {
+                        state.flightAirborneTicks++;
+                    }
+                    int gateTicks = gliding
+                        ? (int) Math.round(config.hungerModeFlightDamageAfterHungerSeconds * 20.0)
+                        : (int) Math.round(config.hungerModeFlightDamageAfterSeconds * 20.0);
+                    if (state.flightAirborneTicks > gateTicks) {
+                        // While descending, only tick damage at half frequency so
+                        // landing attempts are survivable.
+                        double descent = state.lastPos != null ? (pos.y - state.lastPos.y) : 0.0;
+                        if (descent < -0.5 && state.flightAirborneTicks % 80 != 0) {
+                            // descending fast - skip this tick, deal every 4s
+                        } else if (state.flightAirborneTicks % 40 == 0) {
+                            float dmg = (float) config.hungerModeFlightDamagePerSecond;
+                            if (dmg > 0.0f) {
+                                player.hurt(player.damageSources().generic(), dmg);
+                            }
+                        }
                     }
                 }
             } else {
                 state.flightAirborneTicks = 0;
+                state.hungerDrainTicks = 0;
             }
         } else {
             state.flightAirborneTicks = 0;
+            state.hungerDrainTicks = 0;
         }
 
         state.hungerDebt += hungerLoss;
@@ -798,12 +880,6 @@ public final class AntiFlyFabric implements ModInitializer {
             player.stopFallFlying();
             return false;
         }
-        if (moveDeltaY < -config.elytraMaxDown) {
-            Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
-            rubberBand(player, state, target, "elytra_down", moveDeltaY, -config.elytraMaxDown);
-            player.stopFallFlying();
-            return false;
-        }
 
         if (horizontal <= config.elytraStallHorizontalMax
             && Math.abs(moveDeltaY) <= config.elytraStallVerticalMax) {
@@ -818,16 +894,6 @@ public final class AntiFlyFabric implements ModInitializer {
             state.glideStallTicks = 0;
         }
 
-        if (state.glideSlowdownGraceTicks > 0) {
-            state.glideSlowdownGraceTicks--;
-        } else if (!serverOnGround
-            && state.lastGlideHorizontal > config.elytraSlowdownMinSpeed
-            && horizontalSpeed < state.lastGlideHorizontal * config.elytraSlowdownMinScale) {
-            Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
-            rubberBand(player, state, target, "elytra_slowdown", horizontalSpeed, state.lastGlideHorizontal);
-            player.stopFallFlying();
-            return false;
-        }
         state.lastGlideHorizontal = horizontalSpeed;
         return true;
     }
@@ -1229,6 +1295,11 @@ public final class AntiFlyFabric implements ModInitializer {
             case "elytraEnabled" -> config.elytraChecksEnabled = value > 0.5;
             case "elytraMaxHorizontal" -> config.elytraMaxHorizontal = value;
             case "elytraMaxUp" -> config.elytraMaxUp = value;
+            // Paper-style aliases map to Fabric's single caps.
+            case "elytraNoRocketSustainableHorizontal" -> config.elytraMaxHorizontal = value;
+            case "elytraMaxRocketHorizontal" -> config.elytraMaxHorizontal = value;
+            case "elytraMaxNoRocketUp" -> config.elytraMaxUp = value;
+            case "elytraMaxRocketUp" -> config.elytraMaxUp = value;
             case "elytraMaxDown" -> config.elytraMaxDown = value;
             case "elytraStallHorizontalMax" -> config.elytraStallHorizontalMax = value;
             case "elytraStallVerticalMax" -> config.elytraStallVerticalMax = value;
@@ -1245,7 +1316,14 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hungerModeAirborneMinimumBlocksPerSecond" -> config.hungerModeAirborneMinimumBlocksPerSecond = Math.max(0.0, value);
             case "hungerModeFlightDamageEnabled" -> config.hungerModeFlightDamageEnabled = value > 0.5;
             case "hungerModeFlightDamageAfterSeconds" -> config.hungerModeFlightDamageAfterSeconds = Math.max(0.0, value);
+            case "hungerModeFlightDamageAfterHungerSeconds" -> config.hungerModeFlightDamageAfterHungerSeconds = Math.max(0.0, value);
             case "hungerModeFlightDamagePerSecond" -> config.hungerModeFlightDamagePerSecond = Math.max(0.0, value);
+            case "hungerModeElytraFoodEnabled" -> config.hungerModeElytraFoodEnabled = value > 0.5;
+            case "hungerModeElytraFoodMultiplier" -> config.hungerModeElytraFoodMultiplier = Math.max(0.0, value);
+            case "hungerModeElytraSpeedThresholdBps" -> config.hungerModeElytraSpeedThresholdBps = Math.max(1.0, value);
+            case "hungerModeElytraNoRocketAfterSeconds" -> config.hungerModeElytraNoRocketAfterSeconds = Math.max(1.0, value);
+            case "hungerModeElytraDamageEnabled" -> config.hungerModeElytraDamageEnabled = value > 0.5;
+            case "hungerModeRocketResetsDamage" -> config.hungerModeRocketResetsDamage = value > 0.5;
             case "sustainedAirTicksLimit" -> config.sustainedAirTicksLimit = (int) Math.round(value);
             default -> {
                 source.sendFailure(Component.literal("Unknown key."));
@@ -1307,6 +1385,8 @@ public final class AntiFlyFabric implements ModInitializer {
             case "elytraEnabled" -> String.valueOf(config.elytraChecksEnabled);
             case "elytraMaxHorizontal" -> String.valueOf(config.elytraMaxHorizontal);
             case "elytraMaxUp" -> String.valueOf(config.elytraMaxUp);
+            case "elytraNoRocketSustainableHorizontal", "elytraMaxRocketHorizontal" -> String.valueOf(config.elytraMaxHorizontal);
+            case "elytraMaxNoRocketUp", "elytraMaxRocketUp" -> String.valueOf(config.elytraMaxUp);
             case "elytraMaxDown" -> String.valueOf(config.elytraMaxDown);
             case "elytraStallHorizontalMax" -> String.valueOf(config.elytraStallHorizontalMax);
             case "elytraStallVerticalMax" -> String.valueOf(config.elytraStallVerticalMax);
@@ -1320,7 +1400,14 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hungerModeAirborneMinimumBlocksPerSecond" -> String.valueOf(config.hungerModeAirborneMinimumBlocksPerSecond);
             case "hungerModeFlightDamageEnabled" -> String.valueOf(config.hungerModeFlightDamageEnabled);
             case "hungerModeFlightDamageAfterSeconds" -> String.valueOf(config.hungerModeFlightDamageAfterSeconds);
+            case "hungerModeFlightDamageAfterHungerSeconds" -> String.valueOf(config.hungerModeFlightDamageAfterHungerSeconds);
             case "hungerModeFlightDamagePerSecond" -> String.valueOf(config.hungerModeFlightDamagePerSecond);
+            case "hungerModeElytraFoodEnabled" -> String.valueOf(config.hungerModeElytraFoodEnabled);
+            case "hungerModeElytraFoodMultiplier" -> String.valueOf(config.hungerModeElytraFoodMultiplier);
+            case "hungerModeElytraSpeedThresholdBps" -> String.valueOf(config.hungerModeElytraSpeedThresholdBps);
+            case "hungerModeElytraNoRocketAfterSeconds" -> String.valueOf(config.hungerModeElytraNoRocketAfterSeconds);
+            case "hungerModeElytraDamageEnabled" -> String.valueOf(config.hungerModeElytraDamageEnabled);
+            case "hungerModeRocketResetsDamage" -> String.valueOf(config.hungerModeRocketResetsDamage);
             case "sustainedAirTicksLimit" -> String.valueOf(config.sustainedAirTicksLimit);
             default -> null;
         };
@@ -1351,6 +1438,10 @@ public final class AntiFlyFabric implements ModInitializer {
         "elytraEnabled",
         "elytraMaxHorizontal",
         "elytraMaxUp",
+        "elytraNoRocketSustainableHorizontal",
+        "elytraMaxRocketHorizontal",
+        "elytraMaxNoRocketUp",
+        "elytraMaxRocketUp",
         "elytraMaxDown",
         "elytraStallHorizontalMax",
         "elytraStallVerticalMax",
@@ -1364,7 +1455,14 @@ public final class AntiFlyFabric implements ModInitializer {
         "hungerModeAirborneMinimumBlocksPerSecond",
         "hungerModeFlightDamageEnabled",
         "hungerModeFlightDamageAfterSeconds",
+        "hungerModeFlightDamageAfterHungerSeconds",
         "hungerModeFlightDamagePerSecond",
+        "hungerModeElytraFoodEnabled",
+        "hungerModeElytraFoodMultiplier",
+        "hungerModeElytraSpeedThresholdBps",
+        "hungerModeElytraNoRocketAfterSeconds",
+        "hungerModeElytraDamageEnabled",
+        "hungerModeRocketResetsDamage",
         "sustainedAirTicksLimit"
     );
     private static final java.util.List<String> SET_ALIASES = java.util.List.of(
@@ -1389,7 +1487,14 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hunger_mode_airborne_minimum_blocks_per_second", "hungerModeAirborneMinBps" -> "hungerModeAirborneMinimumBlocksPerSecond";
             case "hunger_mode_flight_damage_enabled" -> "hungerModeFlightDamageEnabled";
             case "hunger_mode_flight_damage_after_seconds" -> "hungerModeFlightDamageAfterSeconds";
+            case "hunger_mode_flight_damage_after_hunger_seconds" -> "hungerModeFlightDamageAfterHungerSeconds";
             case "hunger_mode_flight_damage_per_second" -> "hungerModeFlightDamagePerSecond";
+            case "hunger_mode_elytra_food_enabled" -> "hungerModeElytraFoodEnabled";
+            case "hunger_mode_elytra_food_multiplier" -> "hungerModeElytraFoodMultiplier";
+            case "hunger_mode_elytra_speed_threshold_bps" -> "hungerModeElytraSpeedThresholdBps";
+            case "hunger_mode_elytra_no_rocket_after_seconds" -> "hungerModeElytraNoRocketAfterSeconds";
+            case "hunger_mode_elytra_damage_enabled" -> "hungerModeElytraDamageEnabled";
+            case "hunger_mode_rocket_resets_damage" -> "hungerModeRocketResetsDamage";
             case "sustained_air_ticks_limit" -> "sustainedAirTicksLimit";
             default -> key;
         };
@@ -1597,8 +1702,15 @@ public final class AntiFlyFabric implements ModInitializer {
         int hungerModeRocketGraceTicks = 80;
         double hungerModeAirborneMinimumBlocksPerSecond = 20.0;
         boolean hungerModeFlightDamageEnabled = true;
-        double hungerModeFlightDamageAfterSeconds = 30.0;
+        double hungerModeFlightDamageAfterSeconds = 20.0;
+        double hungerModeFlightDamageAfterHungerSeconds = 30.0;
         double hungerModeFlightDamagePerSecond = 1.0;
+        boolean hungerModeElytraFoodEnabled = true;
+        double hungerModeElytraFoodMultiplier = 0.5;
+        double hungerModeElytraSpeedThresholdBps = 50.0;
+        double hungerModeElytraNoRocketAfterSeconds = 45.0;
+        boolean hungerModeElytraDamageEnabled = true;
+        boolean hungerModeRocketResetsDamage = true;
         double groundWalkMax = AntiFlyConstants.DEFAULT_GROUND_WALK_MAX;
         double groundMountedMax = AntiFlyConstants.DEFAULT_GROUND_MOUNT_MAX;
         double vehicleFallMinDescent = AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT;
@@ -1710,5 +1822,7 @@ public final class AntiFlyFabric implements ModInitializer {
         int flightAirborneTicks;
         int teleportGraceTicks;
         int sustainedAirTicks;
+        int glideNoRocketTicks;
+        int hungerDrainTicks;
     }
 }

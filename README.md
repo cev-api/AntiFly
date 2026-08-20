@@ -6,155 +6,73 @@ Lightweight Paper + Fabric flight-control plugin by CevAPI.
 
 Current release: `1.1.2`
 
-AntiFly is not a full anti-cheat. It focuses on flight and movement abuse with layered checks:
-- server-authorized flight state
-- server-side ground/support truth
-- buffered air/hover/anti-kick suspicion
-- ground-flag spoof and sustained flat-air cruise detection
+AntiFly is not a full anti-cheat - it focuses on flight/movement abuse with layered checks:
+- server-side ground/support truth (never trusts client `onGround`)
+- buffered air/hover/anti-kick suspicion + sustained-air detection
 - disciplined setbacks to last known valid support
-- Elytra-specific movement and boost sanity checks
-- teleport-aware state rebasing - commands, plugin warps, ender pearls, chorus fruit and portals never trigger setbacks
+- Elytra checks that only flag what vanilla physics can't do (speed, instant vertical, stall)
+- teleport-aware rebasing; `/tp`, pearls, chorus, portals never trigger setbacks
+- Hunger Mode, a configurable food/health tax instead of hard blocks
 
 ## Platforms
 - Paper: 1.21.1-26.2 (Folia-supported)
-- Fabric: 1.21.11 (Fabric API 0.139.4)
-- Fabric: 26.1.2 (Fabric API 0.146.1)
-- Fabric: 26.2 (Fabric API 0.154.2)
+- Fabric: 1.21.11 / 26.1.2 / 26.2
 
 ## Build
 ```bash
 ./gradlew build
 ```
-
-Artifacts:
-- `paper/build/libs/AntiFly-paper-<version>.jar`
-- `fabric_12111/build/libs/AntiFly-fabric-1.21.11-<version>.jar`
-- `fabric_2612/build/libs/AntiFly-fabric-26.1.2-<version>.jar`
-- `fabric_262/build/libs/AntiFly-fabric-26.2-<version>.jar`
+Artifacts land in `paper/build/libs/` and each `fabric_*/build/libs/`.
 
 ## Install
-- Paper: drop the Paper jar into `plugins/`
-- Fabric: drop the Fabric jar into `mods/`
+- Paper: drop the jar into `plugins/`
+- Fabric: drop the jar into `mods/`
 
 ## Commands
-### Paper
-Requires op or `antifly.admin`.
+Same set on Paper & Fabric. Requires op / `antifly.admin` on Paper, moderator-level on Fabric.
 
-Core:
-- `/antifly enable`
-- `/antifly disable`
+- `/antifly enable|disable|status|help`
 - `/antifly hungermode <on|off>`
-- `/antifly status`
-- `/antifly help`
-- `/antifly exempt <player>`
-- `/antifly unexempt <player>`
-- `/antifly disabledworlds <worldName> <true|false>`
-- `/antifly set`
-- `/antifly set <key>`
-- `/antifly set <key> <value>`
-- `/antifly reset <player>`
-
-Hunger Mode:
-- `hungerModeMaxBlocksPerSecond` - normalized-speed cap (default 200)
-- `hungerModeHungerPerSecondAtMaxSpeed` - food/sec at max speed (default 10)
-- `hungerModeRocketGraceTicks` - free drain window after a firework (default 80)
-- `hungerModeAirborneMinimumBlocksPerSecond` - hover floor (default 20)
-- `hungerModeFlightDamageEnabled` - real-health damage after sustained flight, on/off (default true)
-- `hungerModeFlightDamageAfterSeconds` - airborne seconds before damage starts (default 30)
-- `hungerModeFlightDamagePerSecond` - health lost per second after the delay (default 1)
-
-Alerts:
+- `/antifly set` - lists every tunable key with its current value
+- `/antifly set <key>` - read one value
+- `/antifly set <key> <value>` - set one (applies instantly, auto-saves)
 - `/antifly alerts <off|game|console|both>`
-- `game` alerts go to ops and users with `antifly.alerts`
-
-Debug:
-- `/antifly debug on`
-- `/antifly debug off`
-- `/antifly debug`
-- Shows live action-bar telemetry (mode, speed vs limits, key buffers)
-
-### Fabric
-Requires moderator-level command permission.
-- `/antifly enable` / `/antifly disable`
-- `/antifly status`
-- `/antifly help`
-- `/antifly alerts <off|game|console|both>`
-- `/antifly debug on|off`
+- `/antifly debug <on|off>`
 - `/antifly exempt <player>` / `/antifly unexempt <player>`
 - `/antifly reset <player>`
 - `/antifly disabledworlds <worldName> <true|false>`
-- `/antifly set` lists supported settings; `/antifly set <key> <value>` changes one.
 
-## Primary settings keys (Paper)
-- `groundWalkMax`
-- `groundMountedMax`
-- `waterMax`
-- `waterVerticalMax`
-- `boatMaxHorizontal`
-- `maxAirHorizontal`
-- `maxAirVertical`
-- `bufferDecay`
-- `horizontalBufferLimit`
-- `verticalBufferLimit`
-- `hoverBufferLimit`
-- `noFallDetectionEnabled`
-- `airNonFallTicksLimit`
-- `antiKickWindowTicks`
-- `antiKickMinDescent`
-- `vehicleAirGraceTicks`
-- `boatAirGraceTicks`
-- `horseAirGraceTicks`
-- `setbackCooldownMs`
-- `elytraEnabled`
-- `elytraBoostGraceTicks`
-- `elytraStallTicks`
-- `elytraMovementBufferLimit`
-- `elytraDurabilityCheckEnabled`
-- `elytraNoRocketMaxAscent`
-- `elytraRequiredDescentForPullup`
-- `elytraMaxRocketHorizontal`
-- `elytraMaxRocketUp`
-- `elytraNoRocketSustainableHorizontal`
-- `elytraMaxNoRocketUp`
+## Tuning keys
+All adjustable live via `/antifly set`. Defaults in brackets.
 
-Legacy aliases kept for backward compatibility:
-- `groundSpeed`, `groundSpeedWalking`, `groundSpeedMounted`
-- `waterSpeed`, `waterVertical`
-- `airSpeed`, `airVertical`, `airNonFallTicks`
-- `elytraMovementLimit`
+### Movement
+`groundWalkMax` (0.67) · `groundMountedMax` (0.75) · `waterMax` (0.55) · `waterVerticalMax` (0.7) · `boatMaxHorizontal` (0.85) · `maxAirHorizontal` (1.8) · `maxAirVertical` (1.0) · `sustainedAirTicksLimit` (150)
+
+### Elytra
+Same keys on both platforms. On Fabric the rocket/no-rocket variants map to the single caps `elytraMaxHorizontal` (6.0) and `elytraMaxUp` (4.0); on Paper they're independent.
+- `elytraMaxHorizontal` / `elytraNoRocketSustainableHorizontal` / `elytraMaxRocketHorizontal`
+- `elytraMaxUp` / `elytraMaxNoRocketUp` / `elytraMaxRocketUp`
+- `elytraEnabled` · `elytraBoostGraceTicks` · `elytraStallTicks` · `elytraMovementBufferLimit`
+
+### Hunger Mode
+- `hungerModeMaxBlocksPerSecond` (200) · `hungerModeHungerPerSecondAtMaxSpeed` (10) · `hungerModeRocketGraceTicks` (80) · `hungerModeAirborneMinimumBlocksPerSecond` (20)
+- `hungerModeFlightDamageEnabled` (true) · `hungerModeFlightDamageAfterSeconds` (20) · `hungerModeFlightDamageAfterHungerSeconds` (30) · `hungerModeFlightDamagePerSecond` (1)
+- `hungerModeElytraFoodEnabled` (true) · `hungerModeElytraFoodMultiplier` (0.5) · `hungerModeElytraSpeedThresholdBps` (50) · `hungerModeElytraNoRocketAfterSeconds` (45) · `hungerModeElytraDamageEnabled` (true) · `hungerModeRocketResetsDamage` (true)
 
 ## Hunger Mode
-- Enable with `/antifly hungermode on`. It bypasses every AntiFly enforcement check in enabled worlds.
-- Moving consumes food quadratically by horizontal speed, capped at 200 blocks/second. The default 200 BPS rate is 10 food points per second.
-- Unsupported players have a server-side minimum penalty equivalent to 20 BPS, including stationary hovering. This does not use the client `onGround` flag, so AntiHunger packet spoofing cannot bypass it.
-- Hovering in a vehicle is only exempt while the vehicle itself is supported (boat on water/ground, mount standing); flying in a boat is penalized like any other unsupported flight.
-- Rocket-propelled Elytra movement has no Hunger Mode cost during the configured 80-tick rocket grace window. Unassisted Elytra gliding costs half the normal amount, but only while actually moving - hovering with an Elytra drains at the normal hover rate.
-- Sustained unsupported flight deals real health damage: after `hungerMode.flightDamageAfterSeconds` (default 30) of continuous flight without support, players take `hungerMode.flightDamagePerSecond` (default 1) damage per second. The counter resets the moment they touch ground/support, so stacking food cannot sustain an endless flight - food restores hunger, not health. Toggle with `hungerMode.flightDamageEnabled` (default true).
-- The server cannot reliably distinguish legitimate unassisted glide energy from Elytra-flight cheats, so all no-rocket Elytra gliding receives the same half-rate treatment.
+- `/antifly hungermode on` - replaces hard blocks with a food drain. Hovering always drains slowly, and client `onGround` spoofing can't bypass it.
+- Drain scales quadratically with horizontal speed (cap 200 BPS = 10 food/s). Rocket boost = free for 80 ticks; gliding pays by its real speed (no unfair elytra tax).
+- After 20s of continuous unsupported flight (not gliding), real health damage kicks in (generic damage, in full-heart chunks every 2s, every 4s while descending). Health damage always follows hunger: the timer only counts while hunger is actively draining, so the hunger phase comes first.
+- Elytra is only punished when exploiting: flying over the speed threshold, hover-hacking, or gliding for a long time without any rocket (45s). Vanilla gliding (with rockets) is completely free - no food drain, no health damage. For elytra, health damage only starts after hunger has been actively draining for 30s.
 
 ## Notes on Elytra
-- Rocket-assisted glide is tracked separately from no-rocket glide.
-- No-rocket controlled upward/flat cruise behavior is treated as suspicious and can be blocked.
-- Repeated movement ground-flag spoofing cannot continually refresh Elytra landing grace.
-- Sustained flat-air movement is blocked after 12 air ticks when horizontal movement reaches 0.45 blocks per tick.
-- Sustained unsupported air time is rubber-banded after `sustainedAirTicksLimit` ticks (default 150 = 7.5s), regardless of speed or bobbing patterns — the counter only resets on landing, fluid or vehicle support.
-- Rare fluid-exit and early-glide pull-up transitions are given short grace windows to reduce false positives.
+- Checks only block what vanilla can't do: sustained speed beyond ~6 b/t, instant climbs beyond ~4 b/t, and stall-hovering. Steep dives, pull-ups, rocket boosts and crashing into obstacles are all allowed.
+- Repeated ground-flag spoofing can't refresh landing grace; sustained flat-air movement is blocked after 20 air ticks at 0.45 b/t.
 
 ## Permissions (Paper)
-- `antifly.admin` (default: op)
-- `antifly.alerts` (default: op)
+- `antifly.admin` (default: op) · `antifly.alerts` (default: op)
 
-## Config locations
-- Paper: `plugins/AntiFly/config.yml`
-- Fabric: `config/antifly.json`
-
-## World-specific disable
-- Paper config supports `disabledWorlds: []`
-- Fabric config supports `"disabledWorlds": []`
-- Add exact world names to disable AntiFly in those worlds, for example `world_nether`, `world_the_end`, or any custom multiverse world name
-- `/antifly status` shows the currently disabled worlds
-
-## Modrinth version check
-- Project slug: `antiflight`
-- `/antifly status` performs a live check
-- Startup check warns ops/admins if outdated
+## Config
+- Paper: `plugins/AntiFly/config.yml` · Fabric: `config/antifly.json`
+- Disable AntiFly per world with `disabledWorlds: []` on either platform
+- Modrinth check (slug `antiflight`): `/antifly status` + startup warning when outdated

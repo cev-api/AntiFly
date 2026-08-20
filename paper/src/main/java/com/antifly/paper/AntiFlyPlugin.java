@@ -215,7 +215,14 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "hungerModeAirborneMinimumBlocksPerSecond" -> settings.hungerModeAirborneMinimumBlocksPerSecond = Math.max(0.0, value);
             case "hungerModeFlightDamageEnabled" -> settings.hungerModeFlightDamageEnabled = value > 0.5;
             case "hungerModeFlightDamageAfterSeconds" -> settings.hungerModeFlightDamageAfterSeconds = Math.max(0.0, value);
+            case "hungerModeFlightDamageAfterHungerSeconds" -> settings.hungerModeFlightDamageAfterHungerSeconds = Math.max(0.0, value);
             case "hungerModeFlightDamagePerSecond" -> settings.hungerModeFlightDamagePerSecond = Math.max(0.0, value);
+            case "hungerModeElytraFoodEnabled" -> settings.hungerModeElytraFoodEnabled = value > 0.5;
+            case "hungerModeElytraFoodMultiplier" -> settings.hungerModeElytraFoodMultiplier = Math.max(0.0, value);
+            case "hungerModeElytraSpeedThresholdBps" -> settings.hungerModeElytraSpeedThresholdBps = Math.max(1.0, value);
+            case "hungerModeElytraNoRocketAfterSeconds" -> settings.hungerModeElytraNoRocketAfterSeconds = Math.max(1.0, value);
+            case "hungerModeElytraDamageEnabled" -> settings.hungerModeElytraDamageEnabled = value > 0.5;
+            case "hungerModeRocketResetsDamage" -> settings.hungerModeRocketResetsDamage = value > 0.5;
             default -> {
                 return;
             }
@@ -260,8 +267,15 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("hungerMode.rocketGraceTicks", 80);
         config.addDefault("hungerMode.airborneMinimumBlocksPerSecond", 20.0);
         config.addDefault("hungerMode.flightDamageEnabled", true);
-        config.addDefault("hungerMode.flightDamageAfterSeconds", 30.0);
+        config.addDefault("hungerMode.flightDamageAfterSeconds", 20.0);
+        config.addDefault("hungerMode.flightDamageAfterHungerSeconds", 30.0);
         config.addDefault("hungerMode.flightDamagePerSecond", 1.0);
+        config.addDefault("hungerMode.elytraFoodEnabled", true);
+        config.addDefault("hungerMode.elytraFoodMultiplier", 0.5);
+        config.addDefault("hungerMode.elytraSpeedThresholdBps", 50.0);
+        config.addDefault("hungerMode.elytraNoRocketAfterSeconds", 45.0);
+        config.addDefault("hungerMode.elytraDamageEnabled", true);
+        config.addDefault("hungerMode.rocketResetsDamage", true);
 
         config.addDefault("elytra.enabled", true);
         config.addDefault("elytra.boostGraceTicks", 80);
@@ -272,11 +286,11 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("elytra.stallTicks", 10);
         config.addDefault("elytra.noRocketWindowTicks", 40);
         config.addDefault("elytra.noRocketMinDescent", 0.60);
-        config.addDefault("elytra.noRocketSustainableHorizontal", 1.20);
-        config.addDefault("elytra.noRocketMaxAscent", 0.80);
-        config.addDefault("elytra.maxNoRocketUp", 0.45);
-        config.addDefault("elytra.maxRocketHorizontal", 3.50);
-        config.addDefault("elytra.maxRocketUp", 1.50);
+        config.addDefault("elytra.noRocketSustainableHorizontal", 6.0);
+        config.addDefault("elytra.noRocketMaxAscent", 4.0);
+        config.addDefault("elytra.maxNoRocketUp", 4.0);
+        config.addDefault("elytra.maxRocketHorizontal", 6.0);
+        config.addDefault("elytra.maxRocketUp", 4.0);
         config.addDefault("elytra.requiredDescentForPullup", 0.75);
         config.addDefault("elytra.movementBufferLimit", 6.0);
         config.addDefault("elytra.durabilityCheckEnabled", true);
@@ -334,8 +348,15 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.hungerModeRocketGraceTicks = Math.max(0, config.getInt("hungerMode.rocketGraceTicks", 80));
         settings.hungerModeAirborneMinimumBlocksPerSecond = Math.max(0.0, config.getDouble("hungerMode.airborneMinimumBlocksPerSecond", 20.0));
         settings.hungerModeFlightDamageEnabled = config.getBoolean("hungerMode.flightDamageEnabled", true);
-        settings.hungerModeFlightDamageAfterSeconds = Math.max(0.0, config.getDouble("hungerMode.flightDamageAfterSeconds", 30.0));
+        settings.hungerModeFlightDamageAfterSeconds = Math.max(0.0, config.getDouble("hungerMode.flightDamageAfterSeconds", 20.0));
+        settings.hungerModeFlightDamageAfterHungerSeconds = Math.max(0.0, config.getDouble("hungerMode.flightDamageAfterHungerSeconds", 30.0));
         settings.hungerModeFlightDamagePerSecond = Math.max(0.0, config.getDouble("hungerMode.flightDamagePerSecond", 1.0));
+        settings.hungerModeElytraFoodEnabled = config.getBoolean("hungerMode.elytraFoodEnabled", true);
+        settings.hungerModeElytraFoodMultiplier = Math.max(0.0, config.getDouble("hungerMode.elytraFoodMultiplier", 0.5));
+        settings.hungerModeElytraSpeedThresholdBps = Math.max(1.0, config.getDouble("hungerMode.elytraSpeedThresholdBps", 50.0));
+        settings.hungerModeElytraNoRocketAfterSeconds = Math.max(1.0, config.getDouble("hungerMode.elytraNoRocketAfterSeconds", 45.0));
+        settings.hungerModeElytraDamageEnabled = config.getBoolean("hungerMode.elytraDamageEnabled", true);
+        settings.hungerModeRocketResetsDamage = config.getBoolean("hungerMode.rocketResetsDamage", true);
 
         settings.elytraEnabled = config.getBoolean("elytra.enabled", true);
         settings.elytraBoostGraceTicks = config.getInt("elytra.boostGraceTicks", 80);
@@ -346,11 +367,11 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.elytraStallTicks = config.getInt("elytra.stallTicks", 10);
         settings.elytraNoRocketWindowTicks = config.getInt("elytra.noRocketWindowTicks", 40);
         settings.elytraNoRocketMinDescent = config.getDouble("elytra.noRocketMinDescent", 0.60);
-        settings.elytraNoRocketSustainableHorizontal = config.getDouble("elytra.noRocketSustainableHorizontal", 1.20);
-        settings.elytraNoRocketMaxAscent = config.getDouble("elytra.noRocketMaxAscent", 0.80);
-        settings.elytraMaxNoRocketUp = config.getDouble("elytra.maxNoRocketUp", 0.45);
-        settings.elytraMaxRocketHorizontal = config.getDouble("elytra.maxRocketHorizontal", 3.50);
-        settings.elytraMaxRocketUp = config.getDouble("elytra.maxRocketUp", 1.50);
+        settings.elytraNoRocketSustainableHorizontal = config.getDouble("elytra.noRocketSustainableHorizontal", 6.0);
+        settings.elytraNoRocketMaxAscent = config.getDouble("elytra.noRocketMaxAscent", 4.0);
+        settings.elytraMaxNoRocketUp = config.getDouble("elytra.maxNoRocketUp", 4.0);
+        settings.elytraMaxRocketHorizontal = config.getDouble("elytra.maxRocketHorizontal", 6.0);
+        settings.elytraMaxRocketUp = config.getDouble("elytra.maxRocketUp", 4.0);
         settings.elytraRequiredDescentForPullup = config.getDouble("elytra.requiredDescentForPullup", 0.75);
         settings.elytraMovementBufferLimit = config.getDouble("elytra.movementBufferLimit", 6.0);
         settings.elytraDurabilityCheckEnabled = config.getBoolean("elytra.durabilityCheckEnabled", true);
@@ -405,7 +426,14 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("hungerMode.airborneMinimumBlocksPerSecond", settings.hungerModeAirborneMinimumBlocksPerSecond);
         config.set("hungerMode.flightDamageEnabled", settings.hungerModeFlightDamageEnabled);
         config.set("hungerMode.flightDamageAfterSeconds", settings.hungerModeFlightDamageAfterSeconds);
+        config.set("hungerMode.flightDamageAfterHungerSeconds", settings.hungerModeFlightDamageAfterHungerSeconds);
         config.set("hungerMode.flightDamagePerSecond", settings.hungerModeFlightDamagePerSecond);
+        config.set("hungerMode.elytraFoodEnabled", settings.hungerModeElytraFoodEnabled);
+        config.set("hungerMode.elytraFoodMultiplier", settings.hungerModeElytraFoodMultiplier);
+        config.set("hungerMode.elytraSpeedThresholdBps", settings.hungerModeElytraSpeedThresholdBps);
+        config.set("hungerMode.elytraNoRocketAfterSeconds", settings.hungerModeElytraNoRocketAfterSeconds);
+        config.set("hungerMode.elytraDamageEnabled", settings.hungerModeElytraDamageEnabled);
+        config.set("hungerMode.rocketResetsDamage", settings.hungerModeRocketResetsDamage);
 
         config.set("elytra.enabled", settings.elytraEnabled);
         config.set("elytra.boostGraceTicks", settings.elytraBoostGraceTicks);
@@ -479,7 +507,14 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "hunger_mode_airborne_minimum_blocks_per_second", "hungerModeAirborneMinBps" -> "hungerModeAirborneMinimumBlocksPerSecond";
             case "hunger_mode_flight_damage_enabled" -> "hungerModeFlightDamageEnabled";
             case "hunger_mode_flight_damage_after_seconds" -> "hungerModeFlightDamageAfterSeconds";
+            case "hunger_mode_flight_damage_after_hunger_seconds" -> "hungerModeFlightDamageAfterHungerSeconds";
             case "hunger_mode_flight_damage_per_second" -> "hungerModeFlightDamagePerSecond";
+            case "hunger_mode_elytra_food_enabled" -> "hungerModeElytraFoodEnabled";
+            case "hunger_mode_elytra_food_multiplier" -> "hungerModeElytraFoodMultiplier";
+            case "hunger_mode_elytra_speed_threshold_bps" -> "hungerModeElytraSpeedThresholdBps";
+            case "hunger_mode_elytra_no_rocket_after_seconds" -> "hungerModeElytraNoRocketAfterSeconds";
+            case "hunger_mode_elytra_damage_enabled" -> "hungerModeElytraDamageEnabled";
+            case "hunger_mode_rocket_resets_damage" -> "hungerModeRocketResetsDamage";
             default -> key;
         };
     }
@@ -550,7 +585,14 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double hungerModeAirborneMinimumBlocksPerSecond;
         boolean hungerModeFlightDamageEnabled;
         double hungerModeFlightDamageAfterSeconds;
+        double hungerModeFlightDamageAfterHungerSeconds;
         double hungerModeFlightDamagePerSecond;
+        boolean hungerModeElytraFoodEnabled;
+        double hungerModeElytraFoodMultiplier;
+        double hungerModeElytraSpeedThresholdBps;
+        double hungerModeElytraNoRocketAfterSeconds;
+        boolean hungerModeElytraDamageEnabled;
+        boolean hungerModeRocketResetsDamage;
 
         boolean elytraEnabled;
         int elytraBoostGraceTicks;
@@ -648,6 +690,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         org.bukkit.Location lastHungerSamplePos;
         double hungerDebt;
         double flightAirborneSeconds;
+        double lastFlightDamageAtSeconds;
+        double hungerDrainSeconds;
+        double glideNoRocketSeconds;
         int teleportGraceTicks;
         int sustainedAirTicks;
         double glideWindowHorizontal;

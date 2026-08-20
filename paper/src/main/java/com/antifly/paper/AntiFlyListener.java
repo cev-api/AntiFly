@@ -32,12 +32,13 @@ import org.bukkit.util.Vector;
 
 public final class AntiFlyListener implements Listener {
     private static final long LOG_COOLDOWN_MS = 500;
-    private static final int NO_ROCKET_FLAT_TICKS_LIMIT = 12;
+    private static final int NO_ROCKET_FLAT_TICKS_LIMIT = 20;
     private static final double NO_ROCKET_FLAT_DELTA_Y_MAX = 0.03;
-    private static final double NO_ROCKET_FLAT_MIN_HORIZONTAL = 0.12;
+    private static final double NO_ROCKET_FLAT_MIN_HORIZONTAL = 0.45;
     private static final int NO_ROCKET_UP_CONTROL_TICKS_LIMIT = 6;
-    private static final double NO_ROCKET_UP_CONTROL_MIN_DELTA_Y = 0.06;
+    private static final double NO_ROCKET_UP_CONTROL_MIN_DELTA_Y = 1.0;
     private static final int FLUID_EXIT_UP_GRACE_TICKS = 12;
+    private static final double ELYTRA_HOVER_MAX_BPS = 2.0;
     private static final EnumSet<Material> COLLISION_SUPPORT = EnumSet.of(
         Material.SLIME_BLOCK, Material.HONEY_BLOCK, Material.COBWEB
     );
@@ -342,45 +343,125 @@ public final class AntiFlyListener implements Listener {
             // Horizontal-only speed: diagonal flight counts once at its real
             // horizontal rate, never compounded with a vertical component.
             double rawSpeedBps = horizontalDistance(prev, pos) / elapsedSeconds;
-            double speedBlocksPerSecond = rawSpeedBps;
-            if (unsupported) {
-                // Stationary hovering counts as the minimum "airborne" speed so
-                // it always drains slowly, no matter what the client reports.
-                speedBlocksPerSecond = Math.max(speedBlocksPerSecond, settings.hungerModeAirborneMinimumBlocksPerSecond);
-            }
 
-            double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / settings.hungerModeMaxBlocksPerSecond);
-            double hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
-                * normalizedSpeed * normalizedSpeed * elapsedSeconds;
-
-            // Rocket grace only covers recent firework boosts; the half-rate
-            // glide discount applies only while actually moving with the
-            // elytra - hovering with an elytra drains like normal hovering.
+            // Rocket grace only covers recent firework boosts.
             boolean recentRocket = gliding
                 && nowMs - state.lastRocketUseMs <= settings.hungerModeRocketGraceTicks * 50L;
+
+            // Elytra exploit detection: abnormal speed (> threshold), hover-hack
+            // (no horizontal movement), or gliding for a long time without any
+            // rocket. Vanilla gliding with rockets is never an exploit.
+            boolean glidingExploit = false;
+            if (gliding) {
+                if (recentRocket) {
+                    state.glideNoRocketSeconds = 0.0;
+                } else {
+                    state.glideNoRocketSeconds += elapsedSeconds;
+                }
+                boolean hovering = unsupported && rawSpeedBps < ELYTRA_HOVER_MAX_BPS;
+                glidingExploit = rawSpeedBps > settings.hungerModeElytraSpeedThresholdBps
+                    || hovering
+                    || state.glideNoRocketSeconds > settings.hungerModeElytraNoRocketAfterSeconds;
+            } else {
+                state.glideNoRocketSeconds = 0.0;
+            }
+
+            double hungerLoss;
             if (recentRocket) {
                 hungerLoss = 0.0;
-            } else if (gliding && rawSpeedBps >= settings.hungerModeAirborneMinimumBlocksPerSecond) {
-                hungerLoss *= 0.5;
+            } else if (gliding) {
+                if (!settings.hungerModeElytraFoodEnabled) {
+                    // Elytra fully exempt from food drain.
+                    hungerLoss = 0.0;
+                } else if (unsupported && rawSpeedBps < ELYTRA_HOVER_MAX_BPS) {
+                    // Elytra hover-hack: hover penalty, same as hovering
+                    // without an elytra.
+                    double hoverNormalized = Math.min(1.0, settings.hungerModeAirborneMinimumBlocksPerSecond
+                        / settings.hungerModeMaxBlocksPerSecond);
+                    hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
+                        * hoverNormalized * hoverNormalized * elapsedSeconds;
+                } else if (glidingExploit) {
+                    // Abnormal elytra speed or no-rocket exploit: speed-based
+                    // drain (with elytra multiplier).
+                    double normalizedSpeed = Math.min(1.0, rawSpeedBps / settings.hungerModeMaxBlocksPerSecond);
+                    hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
+                        * normalizedSpeed * normalizedSpeed * elapsedSeconds
+                        * settings.hungerModeElytraFoodMultiplier;
+                } else {
+                    // Normal elytra gliding: no food drain.
+                    hungerLoss = 0.0;
+                }
+            } else {
+                // Normal (non-elytra) movement: speed-based drain with the
+                // airborne minimum floor for unsupported players.
+                double speedBlocksPerSecond = rawSpeedBps;
+                if (unsupported) {
+                    speedBlocksPerSecond = Math.max(speedBlocksPerSecond, settings.hungerModeAirborneMinimumBlocksPerSecond);
+                }
+                double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / settings.hungerModeMaxBlocksPerSecond);
+                hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
+                    * normalizedSpeed * normalizedSpeed * elapsedSeconds;
             }
 
             // Sustained unsupported flight deals real health damage after the
             // configured delay, so carrying stacks of food cannot sustain an
             // endless flight - food restores hunger, not the health being lost.
+            // Health damage only follows hunger accumulation: for elytra the
+            // timer counts only while hunger is ACTIVELY draining, so the
+            // hunger phase always comes first and physical damage only starts
+            // if the exploit keeps going. Damage ticks are slow (every 2s,
+            // every 4s while descending) so fast hacks don't make it hectic,
+            // and landing is always survivable.
             if (settings.hungerModeFlightDamageEnabled) {
-                if (unsupported) {
-                    state.flightAirborneSeconds += elapsedSeconds;
-                    if (state.flightAirborneSeconds > settings.hungerModeFlightDamageAfterSeconds) {
-                        double dmg = settings.hungerModeFlightDamagePerSecond * elapsedSeconds;
-                        if (dmg > 0.0) {
-                            player.damage(dmg, org.bukkit.damage.DamageSource.builder(org.bukkit.damage.DamageType.STARVE).build());
+                boolean damageCounted = unsupported
+                    && (!gliding || (settings.hungerModeElytraDamageEnabled && glidingExploit));
+                if (damageCounted) {
+                    if (gliding && recentRocket && settings.hungerModeRocketResetsDamage) {
+                        state.flightAirborneSeconds = 0.0;
+                        state.lastFlightDamageAtSeconds = 0.0;
+                        state.hungerDrainSeconds = 0.0;
+                    } else {
+                        if (gliding) {
+                            // Elytra: only count time while hunger is actually
+                            // draining (hungerLoss > 0), so health damage can
+                            // never skip the hunger phase.
+                            if (hungerLoss > 0.0) {
+                                state.hungerDrainSeconds += elapsedSeconds;
+                            } else {
+                                state.hungerDrainSeconds = 0.0;
+                            }
+                            state.flightAirborneSeconds = state.hungerDrainSeconds;
+                        } else {
+                            state.flightAirborneSeconds += elapsedSeconds;
+                        }
+                        double gate = gliding
+                            ? settings.hungerModeFlightDamageAfterHungerSeconds
+                            : settings.hungerModeFlightDamageAfterSeconds;
+                        if (state.flightAirborneSeconds > gate) {
+                            // While descending, only tick damage at half frequency so
+                            // landing attempts are survivable.
+                            double descent = pos.getY() - prev.getY();
+                            boolean descending = descent < -0.5;
+                            double interval = descending ? 4.0 : 2.0;
+                            double next = state.lastFlightDamageAtSeconds + interval;
+                            if (state.flightAirborneSeconds >= next) {
+                                state.lastFlightDamageAtSeconds = state.flightAirborneSeconds;
+                                double dmg = settings.hungerModeFlightDamagePerSecond;
+                                if (dmg > 0.0) {
+                                    player.damage(dmg, org.bukkit.damage.DamageSource.builder(org.bukkit.damage.DamageType.STARVE).build());
+                                }
+                            }
                         }
                     }
                 } else {
                     state.flightAirborneSeconds = 0.0;
+                    state.lastFlightDamageAtSeconds = 0.0;
+                    state.hungerDrainSeconds = 0.0;
                 }
             } else {
                 state.flightAirborneSeconds = 0.0;
+                state.lastFlightDamageAtSeconds = 0.0;
+                state.hungerDrainSeconds = 0.0;
             }
 
             state.hungerDebt += hungerLoss;

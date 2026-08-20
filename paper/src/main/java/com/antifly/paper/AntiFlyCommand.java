@@ -27,7 +27,9 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         "elytraNoRocketMaxAscent", "elytraRequiredDescentForPullup",
         "elytraMaxRocketHorizontal", "elytraMaxRocketUp", "elytraNoRocketSustainableHorizontal", "elytraMaxNoRocketUp",
         "hungerModeMaxBlocksPerSecond", "hungerModeHungerPerSecondAtMaxSpeed", "hungerModeRocketGraceTicks", "hungerModeAirborneMinimumBlocksPerSecond",
-        "hungerModeFlightDamageEnabled", "hungerModeFlightDamageAfterSeconds", "hungerModeFlightDamagePerSecond",
+        "hungerModeFlightDamageEnabled", "hungerModeFlightDamageAfterSeconds", "hungerModeFlightDamageAfterHungerSeconds", "hungerModeFlightDamagePerSecond",
+        "hungerModeElytraFoodEnabled", "hungerModeElytraFoodMultiplier", "hungerModeElytraSpeedThresholdBps", "hungerModeElytraNoRocketAfterSeconds", "hungerModeElytraDamageEnabled",
+        "hungerModeRocketResetsDamage",
         "sustainedAirTicksLimit"
     );
     private final AntiFlyPlugin plugin;
@@ -407,7 +409,14 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "hungerModeAirborneMinimumBlocksPerSecond" -> String.valueOf(s.hungerModeAirborneMinimumBlocksPerSecond);
             case "hungerModeFlightDamageEnabled" -> String.valueOf(s.hungerModeFlightDamageEnabled);
             case "hungerModeFlightDamageAfterSeconds" -> String.valueOf(s.hungerModeFlightDamageAfterSeconds);
+            case "hungerModeFlightDamageAfterHungerSeconds" -> String.valueOf(s.hungerModeFlightDamageAfterHungerSeconds);
             case "hungerModeFlightDamagePerSecond" -> String.valueOf(s.hungerModeFlightDamagePerSecond);
+            case "hungerModeElytraFoodEnabled" -> String.valueOf(s.hungerModeElytraFoodEnabled);
+            case "hungerModeElytraFoodMultiplier" -> String.valueOf(s.hungerModeElytraFoodMultiplier);
+            case "hungerModeElytraSpeedThresholdBps" -> String.valueOf(s.hungerModeElytraSpeedThresholdBps);
+            case "hungerModeElytraNoRocketAfterSeconds" -> String.valueOf(s.hungerModeElytraNoRocketAfterSeconds);
+            case "hungerModeElytraDamageEnabled" -> String.valueOf(s.hungerModeElytraDamageEnabled);
+            case "hungerModeRocketResetsDamage" -> String.valueOf(s.hungerModeRocketResetsDamage);
             default -> null;
         };
     }

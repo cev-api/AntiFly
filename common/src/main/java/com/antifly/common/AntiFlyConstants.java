@@ -22,9 +22,9 @@ public final class AntiFlyConstants {
     public static final double VEHICLE_FALL_MAX_HORIZONTAL = 0.40;
     public static final int VEHICLE_FALL_TICKS_MAX = 60;
     public static final double BOAT_MAX_HORIZONTAL = 0.85;
-    public static final double ELYTRA_MAX_HORIZONTAL = 2.6;
-    public static final double ELYTRA_MAX_UP = 0.55;
-    public static final double ELYTRA_MAX_DOWN = 4.0;
+    public static final double ELYTRA_MAX_HORIZONTAL = 6.0;
+    public static final double ELYTRA_MAX_UP = 4.0;
+    public static final double ELYTRA_MAX_DOWN = 10.0;
     public static final double ELYTRA_STALL_HORIZONTAL_MAX = 0.05;
     public static final double ELYTRA_STALL_VERTICAL_MAX = 0.05;
     public static final int ELYTRA_STALL_TICKS = 10;
@@ -36,7 +36,7 @@ public final class AntiFlyConstants {
     public static final double DEFAULT_GROUND_WALK_MAX = 0.67;
     public static final double DEFAULT_GROUND_MOUNT_MAX = 0.750;
     public static final double DEFAULT_AIR_MAX = 1.8;
-    public static final double DEFAULT_AIR_VERTICAL_MAX = 0.756;
+    public static final double DEFAULT_AIR_VERTICAL_MAX = 1.0;
     public static final double DEFAULT_WATER_MAX = 0.55;
     public static final double DEFAULT_WATER_VERTICAL_MAX = 0.7;
     public static final double BASE_WATER_MAX = 0.45;
