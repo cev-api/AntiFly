@@ -13,6 +13,7 @@ AntiFly is not a full anti-cheat. It focuses on flight and movement abuse with l
 - ground-flag spoof and sustained flat-air cruise detection
 - disciplined setbacks to last known valid support
 - Elytra-specific movement and boost sanity checks
+- teleport-aware state rebasing - commands, plugin warps, ender pearls, chorus fruit and portals never trigger setbacks
 
 ## Platforms
 - Paper: 1.21.1-26.2 (Folia-supported)
@@ -136,6 +137,7 @@ Legacy aliases kept for backward compatibility:
 - No-rocket controlled upward/flat cruise behavior is treated as suspicious and can be blocked.
 - Repeated movement ground-flag spoofing cannot continually refresh Elytra landing grace.
 - Sustained flat-air movement is blocked after 12 air ticks when horizontal movement reaches 0.45 blocks per tick.
+- Sustained unsupported air time is rubber-banded after `sustainedAirTicksLimit` ticks (default 150 = 7.5s), regardless of speed or bobbing patterns — the counter only resets on landing, fluid or vehicle support.
 - Rare fluid-exit and early-glide pull-up transitions are given short grace windows to reduce false positives.
 
 ## Permissions (Paper)

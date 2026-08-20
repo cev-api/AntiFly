@@ -27,7 +27,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         "elytraNoRocketMaxAscent", "elytraRequiredDescentForPullup",
         "elytraMaxRocketHorizontal", "elytraMaxRocketUp", "elytraNoRocketSustainableHorizontal", "elytraMaxNoRocketUp",
         "hungerModeMaxBlocksPerSecond", "hungerModeHungerPerSecondAtMaxSpeed", "hungerModeRocketGraceTicks", "hungerModeAirborneMinimumBlocksPerSecond",
-        "hungerModeFlightDamageEnabled", "hungerModeFlightDamageAfterSeconds", "hungerModeFlightDamagePerSecond"
+        "hungerModeFlightDamageEnabled", "hungerModeFlightDamageAfterSeconds", "hungerModeFlightDamagePerSecond",
+        "sustainedAirTicksLimit"
     );
     private final AntiFlyPlugin plugin;
 
@@ -381,6 +382,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "verticalBufferLimit" -> String.valueOf(s.verticalBufferLimit);
             case "hoverBufferLimit" -> String.valueOf(s.hoverBufferLimit);
             case "noFallDetectionEnabled" -> String.valueOf(s.noFallDetectionEnabled);
+            case "sustainedAirTicksLimit" -> String.valueOf(s.sustainedAirTicksLimit);
             case "airNonFallTicksLimit" -> String.valueOf(s.airNonFallTicksLimit);
             case "antiKickWindowTicks" -> String.valueOf(s.antiKickWindowTicks);
             case "antiKickMinDescent" -> String.valueOf(s.antiKickMinDescent);

@@ -190,6 +190,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "verticalBufferLimit" -> settings.verticalBufferLimit = value;
             case "hoverBufferLimit" -> settings.hoverBufferLimit = value;
             case "noFallDetectionEnabled" -> settings.noFallDetectionEnabled = value > 0.5;
+            case "sustainedAirTicksLimit" -> settings.sustainedAirTicksLimit = Math.max(1, (int) Math.round(value));
             case "airNonFallTicksLimit" -> settings.airNonFallTicksLimit = (int) Math.round(value);
             case "antiKickWindowTicks" -> settings.antiKickWindowTicks = (int) Math.round(value);
             case "antiKickMinDescent" -> settings.antiKickMinDescent = value;
@@ -250,6 +251,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("antiFly.bufferDecay", 0.25);
         config.addDefault("antiFly.setbackCooldownMs", 500L);
         config.addDefault("antiFly.noFallDetectionEnabled", true);
+        config.addDefault("antiFly.sustainedAirTicksLimit", 150);
         config.addDefault("antiFly.alertMode", "both");
 
         config.addDefault("hungerMode.enabled", false);
@@ -323,6 +325,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.bufferDecay = config.getDouble("antiFly.bufferDecay", 0.25);
         settings.setbackCooldownMs = config.getLong("antiFly.setbackCooldownMs", 500L);
         settings.noFallDetectionEnabled = config.getBoolean("antiFly.noFallDetectionEnabled", true);
+        settings.sustainedAirTicksLimit = Math.max(1, config.getInt("antiFly.sustainedAirTicksLimit", 150));
         settings.alertMode = AlertMode.fromString(config.getString("antiFly.alertMode", "both"), AlertMode.BOTH);
 
         settings.hungerModeEnabled = config.getBoolean("hungerMode.enabled", false);
@@ -386,6 +389,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("antiFly.verticalBufferLimit", settings.verticalBufferLimit);
         config.set("antiFly.hoverBufferLimit", settings.hoverBufferLimit);
         config.set("antiFly.noFallDetectionEnabled", settings.noFallDetectionEnabled);
+        config.set("antiFly.sustainedAirTicksLimit", settings.sustainedAirTicksLimit);
         config.set("antiFly.airNonFallTicksLimit", settings.airNonFallTicksLimit);
         config.set("antiFly.antiKickWindowTicks", settings.antiKickWindowTicks);
         config.set("antiFly.antiKickMinDescent", settings.antiKickMinDescent);
@@ -453,6 +457,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "vertical_buffer_limit" -> "verticalBufferLimit";
             case "hover_buffer_limit" -> "hoverBufferLimit";
             case "no_fall_detection_enabled" -> "noFallDetectionEnabled";
+            case "sustained_air_ticks_limit" -> "sustainedAirTicksLimit";
             case "air_non_fall_ticks_limit" -> "airNonFallTicksLimit";
             case "anti_kick_window_ticks" -> "antiKickWindowTicks";
             case "anti_kick_min_descent" -> "antiKickMinDescent";
@@ -535,6 +540,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double bufferDecay;
         long setbackCooldownMs;
         boolean noFallDetectionEnabled;
+        int sustainedAirTicksLimit;
         AlertMode alertMode;
 
         boolean hungerModeEnabled;
@@ -642,6 +648,8 @@ public final class AntiFlyPlugin extends JavaPlugin {
         org.bukkit.Location lastHungerSamplePos;
         double hungerDebt;
         double flightAirborneSeconds;
+        int teleportGraceTicks;
+        int sustainedAirTicks;
         double glideWindowHorizontal;
         double glideWindowDescent;
         double glideWindowAscent;

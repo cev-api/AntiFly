@@ -33,7 +33,7 @@ public final class AntiFlyConstants {
     public static final int ELYTRA_SLOWDOWN_GRACE_TICKS = 8;
     public static final double BASE_GROUND_MAX = 0.35;
     public static final double GROUND_BUFFER = 0.10;
-    public static final double DEFAULT_GROUND_WALK_MAX = 0.49;
+    public static final double DEFAULT_GROUND_WALK_MAX = 0.67;
     public static final double DEFAULT_GROUND_MOUNT_MAX = 0.750;
     public static final double DEFAULT_AIR_MAX = 1.8;
     public static final double DEFAULT_AIR_VERTICAL_MAX = 0.756;

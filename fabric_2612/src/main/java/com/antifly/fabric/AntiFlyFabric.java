@@ -348,6 +348,31 @@ public final class AntiFlyFabric implements ModInitializer {
             return;
         }
 
+        // External teleports (commands, plugins, ender pearls, chorus fruit,
+        // portals) look like instant flight to the checks below. A single jump
+        // farther than any legitimate movement that the player's own velocity
+        // cannot explain is re-baselined instead of rubber-banded. The
+        // rebaseline NEVER moves the setback anchor to the destination unless
+        // it is genuinely supported, so a flyer chaining huge jumps gets
+        // corrected to real ground. A 20-tick cooldown (matches the vanilla
+        // ender-pearl cooldown) means chained jumps are caught by the normal
+        // checks instead of being forgiven forever.
+        if (state.teleportGraceTicks > 0) {
+            state.teleportGraceTicks--;
+        }
+        if (state.lastPos != null && state.teleportGraceTicks <= 0) {
+            Vec3 delta = pos.subtract(state.lastPos);
+            double distSq = delta.lengthSqr();
+            if (distSq > 36.0) {
+                Vec3 vel = player.getDeltaMovement();
+                if (vel.lengthSqr() < distSq) {
+                    state.teleportGraceTicks = 20;
+                    rebaselineForTeleport(state, pos, hasGroundSupport(player) || isInFluid(player));
+                    return;
+                }
+            }
+        }
+
         if ((!config.enabled && !config.hungerModeEnabled) || isWorldDisabled(player.level())) {
             boolean inFluid = isInFluid(player);
             boolean serverOnGround = hasGroundSupport(player);
@@ -515,6 +540,7 @@ public final class AntiFlyFabric implements ModInitializer {
             state.airNonFallTicks = 0;
             state.airSessionTicks = 0;
             state.airSessionDescent = 0.0;
+            state.sustainedAirTicks = 0;
             updateSupport(state, trustedGround, inFluid, pos);
             state.lastPos = pos;
             state.lastServerOnGround = serverOnGround;
@@ -531,6 +557,7 @@ public final class AntiFlyFabric implements ModInitializer {
             state.airNonFallTicks = 0;
             state.airSessionTicks = 0;
             state.airSessionDescent = 0.0;
+            state.sustainedAirTicks = 0;
             state.lastPos = pos;
             state.lastServerOnGround = serverOnGround;
             state.wasGliding = true;
@@ -696,6 +723,18 @@ public final class AntiFlyFabric implements ModInitializer {
                 }
             } else {
                 state.voidTicks = 0;
+            }
+            state.sustainedAirTicks++;
+            // Sustained air time catches level "bobbing" flight that evades the
+            // speed, vertical, hover and no-fall checks by cruising under the
+            // caps and resetting the descent counter on each bob. Only landing
+            // (or fluid/vehicle support) resets this counter.
+            if (state.sustainedAirTicks > config.sustainedAirTicksLimit) {
+                Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
+                rubberBand(player, state, target, "air_sustained", state.sustainedAirTicks, config.sustainedAirTicksLimit);
+                state.lastPos = pos;
+                state.wasGliding = false;
+                return;
             }
             // No generic "flight" rubberband; rely on hover/elytra checks only.
         }
@@ -1039,6 +1078,7 @@ public final class AntiFlyFabric implements ModInitializer {
             case "air_vertical" -> "maxAirVertical";
             case "air_hover" -> "hoverBufferLimit";
             case "air_time" -> "airNonFallTicksLimit";
+            case "air_sustained" -> "sustainedAirTicksLimit";
             case "air_antikick" -> "antiKickWindowTicks/antiKickMinDescent";
             case "air_plane" -> "airNonFallTicksLimit/antiKickMinDescent";
             case "void_fall" -> "voidFallTicks";
@@ -1177,11 +1217,43 @@ public final class AntiFlyFabric implements ModInitializer {
         state.vehicleFallTicks = 0;
         state.vehicleFallHorizontalDistance = 0.0;
         state.wasInVehicle = false;
+        state.sustainedAirTicks = 0;
         if (pos != null) {
             state.lastGroundPos = pos;
             state.lastSupportPos = pos;
             state.lastPos = pos;
             state.lastServerOnGround = true;
+        }
+    }
+
+    /**
+     * Lightweight rebaseline for legitimate teleports. Resets the movement
+     * counters and baseline so the displacement is not treated as flight, but
+     * NEVER moves the setback anchors (lastGroundPos/lastSupportPos) to an
+     * unsupported destination. Only genuinely supported destinations update
+     * the anchors, so a flyer chaining teleport-sized jumps is always
+     * corrected back to real ground.
+     */
+    private void rebaselineForTeleport(PlayerState state, Vec3 pos, boolean supported) {
+        state.lastPos = pos;
+        state.airTicks = 0;
+        state.sustainedAirTicks = 0;
+        state.airNonFallTicks = 0;
+        state.airSessionTicks = 0;
+        state.airSessionDescent = 0.0;
+        state.hoverTicks = 0;
+        state.voidTicks = 0;
+        state.groundSpoofTicks = 0;
+        state.glideGroundGraceTicks = 0;
+        state.glideSlowdownGraceTicks = 0;
+        state.lastGlideHorizontal = 0.0;
+        state.wasGliding = false;
+        state.vehicleFallTicks = 0;
+        state.vehicleFallHorizontalDistance = 0.0;
+        state.lastServerOnGround = supported;
+        if (supported) {
+            state.lastGroundPos = pos;
+            state.lastSupportPos = pos;
         }
     }
 
@@ -1200,8 +1272,10 @@ public final class AntiFlyFabric implements ModInitializer {
             state.vehicleFallTicks = 0;
             state.vehicleFallHorizontalDistance = 0.0;
             state.lastServerOnGround = true;
+            state.sustainedAirTicks = 0;
         } else if (inFluid) {
             state.lastSupportPos = pos;
+            state.sustainedAirTicks = 0;
             state.airTicks = 0;
             state.airNonFallTicks = 0;
             state.airSessionTicks = 0;
@@ -1263,6 +1337,7 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hungerModeFlightDamageEnabled" -> config.hungerModeFlightDamageEnabled = value > 0.5;
             case "hungerModeFlightDamageAfterSeconds" -> config.hungerModeFlightDamageAfterSeconds = Math.max(0.0, value);
             case "hungerModeFlightDamagePerSecond" -> config.hungerModeFlightDamagePerSecond = Math.max(0.0, value);
+            case "sustainedAirTicksLimit" -> config.sustainedAirTicksLimit = (int) Math.round(value);
             default -> {
                 source.sendFailure(Component.literal("Unknown key."));
                 return 0;
@@ -1344,6 +1419,7 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hungerModeFlightDamageEnabled" -> String.valueOf(config.hungerModeFlightDamageEnabled);
             case "hungerModeFlightDamageAfterSeconds" -> String.valueOf(config.hungerModeFlightDamageAfterSeconds);
             case "hungerModeFlightDamagePerSecond" -> String.valueOf(config.hungerModeFlightDamagePerSecond);
+            case "sustainedAirTicksLimit" -> String.valueOf(config.sustainedAirTicksLimit);
             default -> null;
         };
     }
@@ -1393,7 +1469,8 @@ public final class AntiFlyFabric implements ModInitializer {
         "hungerModeAirborneMinimumBlocksPerSecond",
         "hungerModeFlightDamageEnabled",
         "hungerModeFlightDamageAfterSeconds",
-        "hungerModeFlightDamagePerSecond"
+        "hungerModeFlightDamagePerSecond",
+        "sustainedAirTicksLimit"
     );
     private String normalizeSettingKey(String key) {
         return switch (key) {
@@ -1425,6 +1502,7 @@ public final class AntiFlyFabric implements ModInitializer {
             case "hunger_mode_flight_damage_enabled" -> "hungerModeFlightDamageEnabled";
             case "hunger_mode_flight_damage_after_seconds" -> "hungerModeFlightDamageAfterSeconds";
             case "hunger_mode_flight_damage_per_second" -> "hungerModeFlightDamagePerSecond";
+            case "sustained_air_ticks_limit" -> "sustainedAirTicksLimit";
             default -> key;
         };
     }
@@ -1447,6 +1525,7 @@ public final class AntiFlyFabric implements ModInitializer {
         state.antiKickBuffer = 0.0;
         state.elytraMovementBuffer = 0.0;
         state.airTicks = 0;
+        state.sustainedAirTicks = 0;
         state.airNonFallTicks = 0;
         state.airSessionTicks = 0;
         state.airSessionDescent = 0.0;
@@ -1652,6 +1731,7 @@ public final class AntiFlyFabric implements ModInitializer {
         String alertMode = "both";
         long setbackCooldownMs = 500L;
         int airNonFallTicks = AntiFlyConstants.AIR_NON_FALL_TICKS;
+        int sustainedAirTicksLimit = 150;
         int antiKickWindowTicks = AntiFlyConstants.ANTI_KICK_WINDOW_TICKS;
         double antiKickMinDescent = AntiFlyConstants.ANTI_KICK_MIN_DESCENT;
         int voidFallTicks = AntiFlyConstants.VOID_FALL_TICKS;
@@ -1768,5 +1848,7 @@ public final class AntiFlyFabric implements ModInitializer {
         int rocketGraceTicks;
         double hungerDebt;
         int flightAirborneTicks;
+        int teleportGraceTicks;
+        int sustainedAirTicks;
     }
 }

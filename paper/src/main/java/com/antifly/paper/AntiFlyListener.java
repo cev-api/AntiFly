@@ -22,6 +22,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.potion.PotionEffect;
@@ -62,6 +63,33 @@ public final class AntiFlyListener implements Listener {
         if (player.isDead()) {
             resetState(state, null);
             return;
+        }
+
+        // External teleports (commands, plugins, ender pearls, chorus fruit,
+        // portals) look like instant flight to the checks below. A single jump
+        // farther than any legitimate movement that the player's own velocity
+        // cannot explain is re-baselined instead of rubber-banded. The
+        // rebaseline NEVER moves the setback anchor to the destination unless
+        // it is genuinely supported, so a flyer chaining huge jumps gets
+        // corrected to real ground. A 20-tick cooldown (matches the vanilla
+        // ender-pearl cooldown) means chained jumps are caught by the normal
+        // checks instead of being forgiven forever.
+        if (state.teleportGraceTicks > 0) {
+            state.teleportGraceTicks--;
+        }
+        if (from == null || from.getWorld() == null || to.getWorld() == null
+            || !from.getWorld().equals(to.getWorld())) {
+            rebaselineTeleport(state, to, to.getWorld() != null && hasTeleportSupport(player, to));
+            return;
+        }
+        double distSq = from.distanceSquared(to);
+        if (distSq > 36.0 && state.teleportGraceTicks <= 0) {
+            Vector vel = player.getVelocity();
+            if (vel.lengthSquared() < distSq) {
+                state.teleportGraceTicks = 20;
+                rebaselineTeleport(state, to, hasTeleportSupport(player, to));
+                return;
+            }
         }
 
         updateFlightAuthorization(player, state);
@@ -136,6 +164,7 @@ public final class AntiFlyListener implements Listener {
             if (!handleElytraMovement(player, state, from, to, nearGround, inFluid, inVehicle)) {
                 return;
             }
+            state.sustainedAirTicks = 0;
             if (plugin.isDebug(player)) {
                 sendDebugActionBar(player, state, "ELYTRA", 0.0, 0.0, plugin.getSettings().elytraNoRocketSustainableHorizontal,
                     plugin.getSettings().elytraMaxNoRocketUp);
@@ -172,6 +201,56 @@ public final class AntiFlyListener implements Listener {
             state.wasGliding = false;
             state.glideLandingGraceTicks = settings.elytraLandingGraceTicks;
             resetElytraBuffers(state);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onTeleport(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
+        Location to = event.getTo();
+        if (to == null) {
+            return;
+        }
+        // Re-baseline the anti-cheat state at the teleport destination so the
+        // displacement is never treated as a flight violation. The setback
+        // anchor only moves if the destination is genuinely supported.
+        AntiFlyPlugin.PlayerState state = plugin.getState(player);
+        state.teleportGraceTicks = 20;
+        rebaselineTeleport(state, to, to.getWorld() != null && hasTeleportSupport(player, to));
+    }
+
+    /**
+     * True when the teleport destination is genuinely supported (solid ground,
+     * collision-like block, or liquid), so the setback anchor may move there.
+     */
+    private boolean hasTeleportSupport(Player player, Location loc) {
+        if (loc == null || loc.getWorld() == null) {
+            return false;
+        }
+        return hasGroundSupport(player, loc)
+            || isSupportedByCollisionLikeBlock(loc)
+            || loc.getBlock().isLiquid()
+            || loc.clone().add(0.0, 1.0, 0.0).getBlock().isLiquid();
+    }
+
+    /**
+     * Lightweight rebaseline for legitimate teleports. Resets the movement
+     * counters and baseline so the displacement is not treated as flight, but
+     * NEVER moves the setback anchors (lastGround/lastSupport) to an
+     * unsupported destination. Only genuinely supported destinations update
+     * the anchors, so a flyer chaining teleport-sized jumps is always
+     * corrected back to real ground.
+     */
+    private void rebaselineTeleport(AntiFlyPlugin.PlayerState state, Location loc, boolean supported) {
+        state.lastPos = loc.clone();
+        state.groundSpoofTicks = 0;
+        state.lastServerOnGround = supported;
+        state.lastClientOnGround = supported;
+        resetAirFlags(state);
+        resetElytraBuffers(state);
+        if (supported) {
+            state.lastGround = loc.clone();
+            state.lastSupport = loc.clone();
         }
     }
 
@@ -357,6 +436,15 @@ public final class AntiFlyListener implements Listener {
         Vector vel = player.getVelocity();
 
         state.airTicks++;
+        // Sustained air time catches level "bobbing" flight that evades the
+        // speed, vertical, hover and no-fall checks by cruising under the caps
+        // and resetting the descent counter on each bob. Only landing (or
+        // fluid/vehicle support) resets this counter.
+        state.sustainedAirTicks++;
+        if (state.sustainedAirTicks > settings.sustainedAirTicksLimit) {
+            fail(player, state, "air_sustained", state.sustainedAirTicks, settings.sustainedAirTicksLimit);
+            return;
+        }
         if (state.flightRevokeGraceTicks > 0) {
             state.flightRevokeGraceTicks--;
         }
@@ -859,6 +947,7 @@ public final class AntiFlyListener implements Listener {
         state.vehicleAirTicks = 0;
         state.airNonFallTicks = 0;
         state.hoverTicks = 0;
+        state.sustainedAirTicks = 0;
         state.antiKickWindowTicks = 0;
         state.airWindowDescent = 0.0;
         state.airWindowAscent = 0.0;
@@ -987,6 +1076,7 @@ public final class AntiFlyListener implements Listener {
             case "air_offset_vertical" -> "verticalBufferLimit/maxAirVertical";
             case "air_hover" -> "hoverBufferLimit";
             case "air_nonfall" -> "airNonFallTicksLimit";
+            case "air_sustained" -> "sustainedAirTicksLimit";
             case "air_antikick" -> "antiKickWindowTicks/antiKickMinDescent";
             case "vehicle_flight" -> "vehicleAirGraceTicks/boatAirGraceTicks/horseAirGraceTicks";
             case "elytra_stall" -> "elytraStallTicks";
