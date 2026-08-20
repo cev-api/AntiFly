@@ -4,7 +4,7 @@
 
 Lightweight Paper + Fabric flight-control plugin by CevAPI.
 
-Current release: `1.1.1`
+Current release: `1.1.2`
 
 AntiFly is not a full anti-cheat. It focuses on flight and movement abuse with layered checks:
 - server-authorized flight state
@@ -52,6 +52,12 @@ Core:
 - `/antifly set <key>`
 - `/antifly set <key> <value>`
 - `/antifly reset <player>`
+
+Hunger Mode tuning:
+- `hungerModeMaxBlocksPerSecond` - normalized-speed cap (default 200)
+- `hungerModeHungerPerSecondAtMaxSpeed` - food/sec at max speed (default 20)
+- `hungerModeRocketGraceTicks` - free drain window after a firework (default 80)
+- `hungerModeAirborneMinimumBlocksPerSecond` - hover floor (default 20)
 
 Alerts:
 - `/antifly alerts <off|game|console|both>`
@@ -115,12 +121,11 @@ Legacy aliases kept for backward compatibility:
 
 ## Hunger Mode
 - Enable with `/antifly hungermode on`. It bypasses every AntiFly enforcement check in enabled worlds.
-- Moving consumes food quadratically by horizontal speed, capped at 200 blocks/second. The default 200 BPS rate is 20 food points per second.
+- Moving consumes food quadratically by horizontal speed, capped at 200 blocks/second. The default 200 BPS rate is 10 food points per second.
 - Unsupported players have a server-side minimum penalty equivalent to 20 BPS, including stationary hovering. This does not use the client `onGround` flag, so AntiHunger packet spoofing cannot bypass it.
-- Rocket-propelled Elytra movement has no Hunger Mode cost during the configured 80-tick rocket grace window. Unassisted Elytra gliding costs half the normal amount.
+- Hovering in a vehicle is only exempt while the vehicle itself is supported (boat on water/ground, mount standing); flying in a boat is penalized like any other unsupported flight.
+- Rocket-propelled Elytra movement has no Hunger Mode cost during the configured 80-tick rocket grace window. Unassisted Elytra gliding costs half the normal amount, but only while actually moving - hovering with an Elytra drains at the normal hover rate.
 - The server cannot reliably distinguish legitimate unassisted glide energy from Elytra-flight cheats, so all no-rocket Elytra gliding receives the same half-rate treatment.
-- Paper config: `hungerMode.enabled`, `hungerMode.maxBlocksPerSecond`, `hungerMode.hungerPerSecondAtMaxSpeed`, `hungerMode.rocketGraceTicks`, and `hungerMode.airborneMinimumBlocksPerSecond`.
-- Fabric config: `hungerModeEnabled`, `hungerModeMaxBlocksPerSecond`, `hungerModeHungerPerSecondAtMaxSpeed`, `hungerModeRocketGraceTicks`, and `hungerModeAirborneMinimumBlocksPerSecond`.
 
 ## Notes on Elytra
 - Rocket-assisted glide is tracked separately from no-rocket glide.

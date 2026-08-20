@@ -94,7 +94,11 @@ public final class AntiFlyListener implements Listener {
         }
 
         if (plugin.isHungerModeEnabled() && plugin.isWorldEnabled(player.getWorld().getName())) {
-            applyHungerMode(player, state, from, to, serverOnGround || isSupportedByCollisionLikeBlock(to), inFluid || inBoatWater, inVehicle);
+            // Hunger Mode penalties are applied by the periodic server-side
+            // position sampler (hungerModeTick), not per move event, so players
+            // floating perfectly still in the sky cannot avoid the drain by
+            // staying idle. Speed is measured horizontally only, so diagonal
+            // flight is never double-counted.
             resetAirFlags(state);
             resetElytraBuffers(state);
             updateSupport(state, serverOnGround, inFluid, to);
@@ -103,7 +107,8 @@ public final class AntiFlyListener implements Listener {
             return;
         }
 
-        state.lastHungerUpdateMs = 0L;
+        state.lastHungerSampleMs = 0L;
+        state.lastHungerSamplePos = null;
         state.hungerDebt = 0.0;
 
         if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
@@ -204,42 +209,87 @@ public final class AntiFlyListener implements Listener {
         resetState(plugin.getState(event.getPlayer()), event.getRespawnLocation());
     }
 
-    private void applyHungerMode(Player player, AntiFlyPlugin.PlayerState state, Location from, Location to,
-                                 boolean hasPhysicalSupport, boolean inFluid, boolean inVehicle) {
-        long nowMs = System.currentTimeMillis();
-        if (state.lastHungerUpdateMs == 0L) {
-            state.lastHungerUpdateMs = nowMs;
-            return;
-        }
-
-        double elapsedSeconds = Math.min(0.25, Math.max(0.0, (nowMs - state.lastHungerUpdateMs) / 1000.0));
-        state.lastHungerUpdateMs = nowMs;
-        if (elapsedSeconds <= 0.0) {
-            return;
-        }
-
+    /**
+     * Periodic (1s) server-side Hunger Mode sampler. Runs even when the player
+     * sends no move packets, so stationary hovering is always penalized. Speed
+     * is measured purely from horizontal displacement between server-side
+     * position samples (never the client onGround flag), so a diagonal flight
+     * pays exactly once for its true horizontal speed.
+     */
+    void hungerModeTick() {
         AntiFlyPlugin.Settings settings = plugin.getSettings();
-        double speedBlocksPerSecond = horizontalDistance(from, to) / elapsedSeconds;
-        if (!hasPhysicalSupport && !inFluid && !inVehicle) {
-            speedBlocksPerSecond = Math.max(speedBlocksPerSecond, settings.hungerModeAirborneMinimumBlocksPerSecond);
-        }
-        double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / settings.hungerModeMaxBlocksPerSecond);
-        double hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
-            * normalizedSpeed * normalizedSpeed * elapsedSeconds;
+        boolean enabled = plugin.isHungerModeEnabled();
+        long nowMs = System.currentTimeMillis();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            AntiFlyPlugin.PlayerState state = plugin.getState(player);
+            if (!enabled || player.isDead() || !plugin.isWorldEnabled(player.getWorld().getName())) {
+                state.lastHungerSampleMs = 0L;
+                state.lastHungerSamplePos = null;
+                state.hungerDebt = 0.0;
+                continue;
+            }
 
-        boolean recentRocket = player.isGliding()
-            && nowMs - state.lastRocketUseMs <= settings.hungerModeRocketGraceTicks * 50L;
-        if (recentRocket) {
-            hungerLoss = 0.0;
-        } else if (player.isGliding()) {
-            hungerLoss *= 0.5;
-        }
+            Location pos = player.getLocation();
+            Location prev = state.lastHungerSamplePos;
+            if (prev == null || state.lastHungerSampleMs == 0L) {
+                state.lastHungerSampleMs = nowMs;
+                state.lastHungerSamplePos = pos.clone();
+                continue;
+            }
 
-        state.hungerDebt += hungerLoss;
-        int wholeFoodPoints = (int) state.hungerDebt;
-        if (wholeFoodPoints > 0) {
-            player.setFoodLevel(Math.max(0, player.getFoodLevel() - wholeFoodPoints));
-            state.hungerDebt -= wholeFoodPoints;
+            double elapsedSeconds = Math.min(2.5, Math.max(0.05, (nowMs - state.lastHungerSampleMs) / 1000.0));
+            state.lastHungerSampleMs = nowMs;
+            state.lastHungerSamplePos = pos.clone();
+
+            boolean inFluid = player.isInWater() || player.isInLava() || player.isSwimming();
+            // A vehicle only excuses the hover penalty when it is itself
+            // supported (boat on water/ground, mount standing) - flying in a
+            // boat is penalized like any other unsupported flight.
+            boolean vehicleSupported = false;
+            if (player.isInsideVehicle()) {
+                Entity vehicle = player.getVehicle();
+                if (vehicle instanceof Boat boat) {
+                    vehicleSupported = isBoatInFluid(boat) || hasBoatGroundSupport(boat);
+                } else {
+                    vehicleSupported = vehicle.isOnGround();
+                }
+            }
+            boolean unsupported = !hasGroundSupport(player, pos)
+                && !isSupportedByCollisionLikeBlock(pos)
+                && !inFluid && !vehicleSupported;
+            boolean gliding = player.isGliding();
+
+            // Horizontal-only speed: diagonal flight counts once at its real
+            // horizontal rate, never compounded with a vertical component.
+            double rawSpeedBps = horizontalDistance(prev, pos) / elapsedSeconds;
+            double speedBlocksPerSecond = rawSpeedBps;
+            if (unsupported) {
+                // Stationary hovering counts as the minimum "airborne" speed so
+                // it always drains slowly, no matter what the client reports.
+                speedBlocksPerSecond = Math.max(speedBlocksPerSecond, settings.hungerModeAirborneMinimumBlocksPerSecond);
+            }
+
+            double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / settings.hungerModeMaxBlocksPerSecond);
+            double hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
+                * normalizedSpeed * normalizedSpeed * elapsedSeconds;
+
+            // Rocket grace only covers recent firework boosts; the half-rate
+            // glide discount applies only while actually moving with the
+            // elytra - hovering with an elytra drains like normal hovering.
+            boolean recentRocket = gliding
+                && nowMs - state.lastRocketUseMs <= settings.hungerModeRocketGraceTicks * 50L;
+            if (recentRocket) {
+                hungerLoss = 0.0;
+            } else if (gliding && rawSpeedBps >= settings.hungerModeAirborneMinimumBlocksPerSecond) {
+                hungerLoss *= 0.5;
+            }
+
+            state.hungerDebt += hungerLoss;
+            int wholeFoodPoints = (int) state.hungerDebt;
+            if (wholeFoodPoints > 0) {
+                player.setFoodLevel(Math.max(0, player.getFoodLevel() - wholeFoodPoints));
+                state.hungerDebt -= wholeFoodPoints;
+            }
         }
     }
 
@@ -301,7 +351,7 @@ public final class AntiFlyListener implements Listener {
         }
 
         if (player.isOnGround() && !state.lastServerOnGround) {
-            // Client claims ground but server disagrees — only penalize if
+            // Client claims ground but server disagrees - only penalize if
             // the player is actually exceeding legitimate ground speeds.
             // This handles reduced-height blocks (beds, daylight detectors,
             // lecterns, enchanting tables, stonecutters, cakes, campfires,

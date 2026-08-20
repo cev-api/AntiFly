@@ -21,13 +21,23 @@ public final class AntiFlyPlugin extends JavaPlugin {
     private final Set<UUID> notifiedOutdatedOps = new HashSet<>();
     private final Settings settings = new Settings();
     private boolean antiFlyEnabled = true;
+    private AntiFlyListener listener;
 
     @Override
     public void onEnable() {
         loadConfigValues();
-        Bukkit.getPluginManager().registerEvents(new AntiFlyListener(this), this);
+        listener = new AntiFlyListener(this);
+        Bukkit.getPluginManager().registerEvents(listener, this);
         getCommand("antifly").setExecutor(new AntiFlyCommand(this));
         getCommand("antifly").setTabCompleter(new AntiFlyCommand(this));
+        // Hunger Mode hovering is evaluated by a periodic server-side position
+        // sampler so players floating perfectly still in the sky (who send no
+        // move packets) are still penalized, without trusting client onGround.
+        Bukkit.getGlobalRegionScheduler().runAtFixedRate(this, scheduledTask -> {
+            if (listener != null) {
+                listener.hungerModeTick();
+            }
+        }, 20L, 20L);
         checkModrinthVersionAndAlertOps();
     }
 
@@ -198,6 +208,10 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "elytraMaxRocketUp" -> settings.elytraMaxRocketUp = value;
             case "elytraNoRocketSustainableHorizontal" -> settings.elytraNoRocketSustainableHorizontal = value;
             case "elytraMaxNoRocketUp" -> settings.elytraMaxNoRocketUp = value;
+            case "hungerModeMaxBlocksPerSecond" -> settings.hungerModeMaxBlocksPerSecond = Math.max(1.0, value);
+            case "hungerModeHungerPerSecondAtMaxSpeed" -> settings.hungerModeHungerPerSecondAtMaxSpeed = Math.max(0.0, value);
+            case "hungerModeRocketGraceTicks" -> settings.hungerModeRocketGraceTicks = Math.max(0, (int) Math.round(value));
+            case "hungerModeAirborneMinimumBlocksPerSecond" -> settings.hungerModeAirborneMinimumBlocksPerSecond = Math.max(0.0, value);
             default -> {
                 return;
             }
@@ -237,7 +251,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
 
         config.addDefault("hungerMode.enabled", false);
         config.addDefault("hungerMode.maxBlocksPerSecond", 200.0);
-        config.addDefault("hungerMode.hungerPerSecondAtMaxSpeed", 20.0);
+        config.addDefault("hungerMode.hungerPerSecondAtMaxSpeed", 10.0);
         config.addDefault("hungerMode.rocketGraceTicks", 80);
         config.addDefault("hungerMode.airborneMinimumBlocksPerSecond", 20.0);
 
@@ -307,7 +321,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
 
         settings.hungerModeEnabled = config.getBoolean("hungerMode.enabled", false);
         settings.hungerModeMaxBlocksPerSecond = Math.max(1.0, config.getDouble("hungerMode.maxBlocksPerSecond", 200.0));
-        settings.hungerModeHungerPerSecondAtMaxSpeed = Math.max(0.0, config.getDouble("hungerMode.hungerPerSecondAtMaxSpeed", 20.0));
+        settings.hungerModeHungerPerSecondAtMaxSpeed = Math.max(0.0, config.getDouble("hungerMode.hungerPerSecondAtMaxSpeed", 10.0));
         settings.hungerModeRocketGraceTicks = Math.max(0, config.getInt("hungerMode.rocketGraceTicks", 80));
         settings.hungerModeAirborneMinimumBlocksPerSecond = Math.max(0.0, config.getDouble("hungerMode.airborneMinimumBlocksPerSecond", 20.0));
 
@@ -442,6 +456,10 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "elytra_no_rocket_max_ascent" -> "elytraNoRocketMaxAscent";
             case "elytra_max_no_rocket_up" -> "elytraMaxNoRocketUp";
             case "elytra_required_descent_for_pullup" -> "elytraRequiredDescentForPullup";
+            case "hunger_mode_max_blocks_per_second", "hungerModeMaxBps" -> "hungerModeMaxBlocksPerSecond";
+            case "hunger_mode_hunger_per_second_at_max_speed", "hungerModeHungerPerSecond" -> "hungerModeHungerPerSecondAtMaxSpeed";
+            case "hunger_mode_rocket_grace_ticks" -> "hungerModeRocketGraceTicks";
+            case "hunger_mode_airborne_minimum_blocks_per_second", "hungerModeAirborneMinBps" -> "hungerModeAirborneMinimumBlocksPerSecond";
             default -> key;
         };
     }
@@ -602,7 +620,8 @@ public final class AntiFlyPlugin extends JavaPlugin {
         int glideNoRocketWindowTicks;
         int lastRocketTick;
         long lastRocketUseMs;
-        long lastHungerUpdateMs;
+        long lastHungerSampleMs;
+        org.bukkit.Location lastHungerSamplePos;
         double hungerDebt;
         double glideWindowHorizontal;
         double glideWindowDescent;
