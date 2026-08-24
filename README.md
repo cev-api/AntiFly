@@ -4,7 +4,7 @@
 
 Lightweight Paper + Fabric flight-control plugin by CevAPI.
 
-Current release: `1.1.2`
+Current release: `1.1.3`
 
 AntiFly is not a full anti-cheat - it focuses on flight/movement abuse with layered checks:
 - server-side ground/support truth (never trusts client `onGround`)
@@ -34,7 +34,7 @@ Same set on Paper & Fabric. Requires op / `antifly.admin` on Paper, moderator-le
 - `/antifly enable|disable|status|help`
 - `/antifly hungermode <on|off>`
 - `/antifly set` - lists every tunable key with its current value
-- `/antifly set <key>` - read one value
+- `/antifly set <key>` - read one value (accepts canonical keys, unambiguous section-child names, and dotted YAML paths)
 - `/antifly set <key> <value>` - set one (applies instantly, auto-saves)
 - `/antifly alerts <off|game|console|both>`
 - `/antifly debug <on|off>`
@@ -60,10 +60,11 @@ Same keys on both platforms. On Fabric the rocket/no-rocket variants map to the 
 - `hungerModeElytraFoodEnabled` (true) · `hungerModeElytraFoodMultiplier` (0.5) · `hungerModeElytraSpeedThresholdBps` (50) · `hungerModeElytraNoRocketAfterSeconds` (45) · `hungerModeElytraDamageEnabled` (true) · `hungerModeRocketResetsDamage` (true)
 
 ## Hunger Mode
-- `/antifly hungermode on` - replaces hard blocks with a food drain. Hovering always drains slowly, and client `onGround` spoofing can't bypass it.
-- Drain scales quadratically with horizontal speed (cap 200 BPS = 10 food/s). Rocket boost = free for 80 ticks; gliding pays by its real speed (no unfair elytra tax).
-- After 20s of continuous unsupported flight (not gliding), real health damage kicks in (generic damage, in full-heart chunks every 2s, every 4s while descending). Health damage always follows hunger: the timer only counts while hunger is actively draining, so the hunger phase comes first.
-- Elytra is only punished when exploiting: flying over the speed threshold, hover-hacking, or gliding for a long time without any rocket (45s). Vanilla gliding (with rockets) is completely free - no food drain, no health damage. For elytra, health damage only starts after hunger has been actively draining for 30s.
+- `/antifly hungermode on` replaces hard movement blocks with a food-and-health penalty. It uses server-accepted movement and does not trust client `onGround`.
+- Above the airborne floor, drain scales quadratically with horizontal speed. The airborne minimum is a linear hover baseline: with `maxBlocksPerSecond: 200`, `airborneMinimumBlocksPerSecond: 20`, and `hungerPerSecondAtMaxSpeed: 5`, idle hovering costs 0.5 food points/sec.
+- Food loss is applied continuously (at most one food point per tick); landing or regaining support immediately clears any pending flight debt.
+- Unsupported non-Elytra flight normally starts health damage after 20 seconds. Reaching food level 0 escalates immediately to flight damage; `flightDamagePerSecond` is measured in health points (1.0 = half a heart), and is doubled at zero food (so 1.0 = one full heart). Flight damage is generic, so it stacks with vanilla starvation.
+- Elytra is only punished when exploiting: above the speed threshold, hover-hacking, or gliding too long without a rocket. Rocket-assisted vanilla gliding is free; Elytra health damage otherwise starts after its configured active-drain period.
 
 ## Notes on Elytra
 - Checks only block what vanilla can't do: sustained speed beyond ~6 b/t, instant climbs beyond ~4 b/t, and stall-hovering. Steep dives, pull-ups, rocket boosts and crashing into obstacles are all allowed.

@@ -487,13 +487,18 @@ public final class AntiFlyListener implements Listener {
                         double gate = gliding
                             ? settings.hungerModeFlightDamageAfterHungerSeconds
                             : settings.hungerModeFlightDamageAfterSeconds;
-                        if (state.flightAirborneSeconds > gate) {
+                        boolean starving = player.getFoodLevel() <= 0;
+                        // Reaching zero food is an immediate escalation: do not
+                        // wait out the normal flight timer before health damage.
+                        if (starving || state.flightAirborneSeconds > gate) {
                             // While descending, only tick damage at half frequency so
                             // landing attempts are survivable.
                             double descent = pos.getY() - prev.getY();
                             boolean descending = descent < -0.5;
                             double interval = descending ? 4.0 : 2.0;
-                            double next = state.lastFlightDamageAtSeconds + interval;
+                            double next = starving && state.lastFlightDamageAtSeconds == 0.0
+                                ? state.flightAirborneSeconds
+                                : state.lastFlightDamageAtSeconds + interval;
                             if (state.flightAirborneSeconds >= next) {
                                 state.lastFlightDamageAtSeconds = state.flightAirborneSeconds;
                                 double dmg = settings.hungerModeFlightDamagePerSecond;
@@ -526,8 +531,29 @@ public final class AntiFlyListener implements Listener {
             // remains queued so the client sees a continuous drain rather than
             // one delayed bulk update after the player stops moving.
             if (state.hungerDebt >= 1.0 && player.getFoodLevel() > 0) {
-                player.setFoodLevel(player.getFoodLevel() - 1);
+                int foodBefore = player.getFoodLevel();
+                int foodAfter = foodBefore - 1;
+                player.setFoodLevel(foodAfter);
                 state.hungerDebt -= 1.0;
+
+                // The final food point was removed by this flight tick. Apply
+                // the first starvation flight hit now, rather than waiting for
+                // the next sampler pass to observe food level zero.
+                boolean flightDamageEligible = settings.hungerModeFlightDamageEnabled
+                    && unsupported
+                    && (!gliding || (settings.hungerModeElytraDamageEnabled && glidingExploit))
+                    && !(gliding && recentRocket && settings.hungerModeRocketResetsDamage);
+                if (foodAfter == 0 && flightDamageEligible) {
+                    double dmg = settings.hungerModeFlightDamagePerSecond * 2.0;
+                    if (dmg > 0.0) {
+                        // Vanilla starvation may have just applied hurt immunity.
+                        // This is an explicit zero-food flight escalation, so deduct
+                        // the health directly rather than letting that immunity or
+                        // another damage listener defer the required penalty.
+                        player.setHealth(Math.max(0.0, player.getHealth() - dmg));
+                        state.lastFlightDamageAtSeconds = state.flightAirborneSeconds;
+                    }
+                }
             }
         }
     }
