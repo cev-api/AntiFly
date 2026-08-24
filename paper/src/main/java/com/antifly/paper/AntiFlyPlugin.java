@@ -30,14 +30,14 @@ public final class AntiFlyPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(listener, this);
         getCommand("antifly").setExecutor(new AntiFlyCommand(this));
         getCommand("antifly").setTabCompleter(new AntiFlyCommand(this));
-        // Hunger Mode hovering is evaluated by a periodic server-side position
-        // sampler so players floating perfectly still in the sky (who send no
-        // move packets) are still penalized, without trusting client onGround.
+        // Evaluate Hunger Mode every tick so accumulated movement debt is paid
+        // continuously. The listener still measures elapsed wall-clock time,
+        // so this does not increase the configured per-second drain rate.
         Bukkit.getGlobalRegionScheduler().runAtFixedRate(this, scheduledTask -> {
             if (listener != null) {
                 listener.hungerModeTick();
             }
-        }, 20L, 20L);
+        }, 1L, 1L);
         checkModrinthVersionAndAlertOps();
     }
 
@@ -176,14 +176,18 @@ public final class AntiFlyPlugin extends JavaPlugin {
         attemptTracker.reset(uuid);
     }
 
-    void updateSetting(String key, double value) {
+    boolean updateSetting(String key, double value) {
         switch (normalizeSettingKey(key)) {
             case "groundWalkMax" -> settings.groundWalkMax = value;
             case "groundMountedMax" -> settings.groundMountedMax = value;
             case "waterMax" -> settings.waterMax = value;
             case "waterVerticalMax" -> settings.waterVerticalMax = value;
             case "boatMaxHorizontal" -> settings.boatMaxHorizontal = value;
-            case "maxAirHorizontal" -> settings.maxAirHorizontal = value;
+            case "airGraceTicks" -> settings.airGraceTicks = Math.max(0, (int) Math.round(value));
+            case "hoverStartTicks" -> settings.hoverStartTicks = Math.max(0, (int) Math.round(value));
+            case "hoverTicksLimit" -> settings.hoverTicksLimit = Math.max(0, (int) Math.round(value));
+            case "hoverDeltaY" -> settings.hoverDeltaY = Math.max(0.0, value);
+            case "hoverHorizontal" -> settings.hoverHorizontal = Math.max(0.0, value);            case "maxAirHorizontal" -> settings.maxAirHorizontal = value;
             case "maxAirVertical" -> settings.maxAirVertical = value;
             case "bufferDecay" -> settings.bufferDecay = value;
             case "horizontalBufferLimit" -> settings.horizontalBufferLimit = value;
@@ -198,7 +202,16 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "vehicleAirGraceTicks" -> settings.vehicleAirGraceTicks = (int) Math.round(value);
             case "boatAirGraceTicks" -> settings.boatAirGraceTicks = (int) Math.round(value);
             case "horseAirGraceTicks" -> settings.horseAirGraceTicks = (int) Math.round(value);
-            case "elytraEnabled" -> settings.elytraEnabled = value > 0.5;
+            case "elytraToggleGraceTicks" -> settings.elytraToggleGraceTicks = Math.max(0, (int) Math.round(value));
+            case "elytraLandingGraceTicks" -> settings.elytraLandingGraceTicks = Math.max(0, (int) Math.round(value));
+            case "elytraStallHorizontalMax" -> settings.elytraStallHorizontalMax = Math.max(0.0, value);
+            case "elytraStallVerticalMax" -> settings.elytraStallVerticalMax = Math.max(0.0, value);
+            case "elytraNoRocketWindowTicks" -> settings.elytraNoRocketWindowTicks = Math.max(0, (int) Math.round(value));
+            case "elytraNoRocketMinDescent" -> settings.elytraNoRocketMinDescent = Math.max(0.0, value);
+            case "elytraDurabilityBaseWindowTicks" -> settings.elytraDurabilityBaseWindowTicks = Math.max(1, (int) Math.round(value));
+            case "elytraDurabilityUnbreakingMultiplier" -> settings.elytraDurabilityUnbreakingMultiplier = Math.max(0.0, value);
+            case "elytraDurabilitySuspicionLimit" -> settings.elytraDurabilitySuspicionLimit = Math.max(1, (int) Math.round(value));
+            case "elytraRequireMovementSuspicionForDurabilityPunish" -> settings.elytraRequireMovementSuspicionForDurabilityPunish = value > 0.5;            case "elytraEnabled" -> settings.elytraEnabled = value > 0.5;
             case "elytraBoostGraceTicks" -> settings.elytraBoostGraceTicks = (int) Math.round(value);
             case "elytraStallTicks" -> settings.elytraStallTicks = (int) Math.round(value);
             case "elytraMovementBufferLimit" -> settings.elytraMovementBufferLimit = value;
@@ -224,11 +237,12 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "hungerModeElytraDamageEnabled" -> settings.hungerModeElytraDamageEnabled = value > 0.5;
             case "hungerModeRocketResetsDamage" -> settings.hungerModeRocketResetsDamage = value > 0.5;
             default -> {
-                return;
+                return false;
             }
         }
         writeSettingsToConfig(getConfig());
         saveConfig();
+        return true;
     }
 
     PlayerState getState(Player player) {
@@ -403,7 +417,11 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("limits.waterVertical", settings.waterVerticalMax);
         config.set("limits.boatHorizontal", settings.boatMaxHorizontal);
 
-        config.set("antiFly.maxAirHorizontal", settings.maxAirHorizontal);
+        config.set("antiFly.airGraceTicks", settings.airGraceTicks);
+        config.set("antiFly.hoverStartTicks", settings.hoverStartTicks);
+        config.set("antiFly.hoverTicksLimit", settings.hoverTicksLimit);
+        config.set("antiFly.hoverDeltaY", settings.hoverDeltaY);
+        config.set("antiFly.hoverHorizontal", settings.hoverHorizontal);        config.set("antiFly.maxAirHorizontal", settings.maxAirHorizontal);
         config.set("antiFly.maxAirVertical", settings.maxAirVertical);
         config.set("antiFly.bufferDecay", settings.bufferDecay);
         config.set("antiFly.horizontalBufferLimit", settings.horizontalBufferLimit);
@@ -435,7 +453,16 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("hungerMode.elytraDamageEnabled", settings.hungerModeElytraDamageEnabled);
         config.set("hungerMode.rocketResetsDamage", settings.hungerModeRocketResetsDamage);
 
-        config.set("elytra.enabled", settings.elytraEnabled);
+        config.set("elytra.toggleGraceTicks", settings.elytraToggleGraceTicks);
+        config.set("elytra.landingGraceTicks", settings.elytraLandingGraceTicks);
+        config.set("elytra.stallHorizontalMax", settings.elytraStallHorizontalMax);
+        config.set("elytra.stallVerticalMax", settings.elytraStallVerticalMax);
+        config.set("elytra.noRocketWindowTicks", settings.elytraNoRocketWindowTicks);
+        config.set("elytra.noRocketMinDescent", settings.elytraNoRocketMinDescent);
+        config.set("elytra.durabilityBaseWindowTicks", settings.elytraDurabilityBaseWindowTicks);
+        config.set("elytra.durabilityUnbreakingMultiplier", settings.elytraDurabilityUnbreakingMultiplier);
+        config.set("elytra.durabilitySuspicionLimit", settings.elytraDurabilitySuspicionLimit);
+        config.set("elytra.requireMovementSuspicionForDurabilityPunish", settings.elytraRequireMovementSuspicionForDurabilityPunish);        config.set("elytra.enabled", settings.elytraEnabled);
         config.set("elytra.boostGraceTicks", settings.elytraBoostGraceTicks);
         config.set("elytra.stallTicks", settings.elytraStallTicks);
         config.set("elytra.movementBufferLimit", settings.elytraMovementBufferLimit);
@@ -688,6 +715,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
         long lastRocketUseMs;
         long lastHungerSampleMs;
         org.bukkit.Location lastHungerSamplePos;
+        double hungerAcceptedHorizontal;
+        boolean hungerAcceptedUnsupported;
+        boolean hungerAcceptedSupported;
         double hungerDebt;
         double flightAirborneSeconds;
         double lastFlightDamageAtSeconds;

@@ -123,11 +123,18 @@ public final class AntiFlyListener implements Listener {
         }
 
         if (plugin.isHungerModeEnabled() && plugin.isWorldEnabled(player.getWorld().getName())) {
-            // Hunger Mode penalties are applied by the periodic server-side
-            // position sampler (hungerModeTick), not per move event, so players
-            // floating perfectly still in the sky cannot avoid the drain by
-            // staying idle. Speed is measured horizontally only, so diagonal
-            // flight is never double-counted.
+            // Accumulate accepted PlayerMoveEvent displacement. This is the
+            // server's authoritative movement path; the periodic sampler below
+            // remains responsible for stationary hovering.
+            boolean vehicleSupported = inVehicle && (inBoatWater || boatOnSupport
+                || (!(player.getVehicle() instanceof Boat) && player.getVehicle().isOnGround()));
+            boolean movementUnsupported = !serverOnGround && !isSupportedByCollisionLikeBlock(to)
+                && !inFluid && !vehicleSupported;
+            synchronized (state) {
+                state.hungerAcceptedHorizontal += horizontalDistance(from, to);
+                state.hungerAcceptedUnsupported |= movementUnsupported;
+                state.hungerAcceptedSupported |= !movementUnsupported;
+            }
             resetAirFlags(state);
             resetElytraBuffers(state);
             updateSupport(state, serverOnGround, inFluid, to);
@@ -244,6 +251,12 @@ public final class AntiFlyListener implements Listener {
      */
     private void rebaselineTeleport(AntiFlyPlugin.PlayerState state, Location loc, boolean supported) {
         state.lastPos = loc.clone();
+        // Hunger Mode samples position independently of the move checks. Clear
+        // that sampler's previous position as well, otherwise the next sample
+        // treats the legitimate teleport distance as flight speed and drains
+        // hunger (including for ender pearls and other PlayerTeleportEvents).
+        state.lastHungerSampleMs = 0L;
+        state.lastHungerSamplePos = null;
         state.groundSpoofTicks = 0;
         state.lastServerOnGround = supported;
         state.lastClientOnGround = supported;
@@ -307,6 +320,11 @@ public final class AntiFlyListener implements Listener {
                 state.lastHungerSamplePos = null;
                 state.hungerDebt = 0.0;
                 state.flightAirborneSeconds = 0.0;
+                synchronized (state) {
+                    state.hungerAcceptedHorizontal = 0.0;
+                    state.hungerAcceptedUnsupported = false;
+                    state.hungerAcceptedSupported = false;
+                }
                 continue;
             }
 
@@ -340,9 +358,34 @@ public final class AntiFlyListener implements Listener {
                 && !inFluid && !vehicleSupported;
             boolean gliding = player.isGliding();
 
+            // Consume server-accepted movement accumulated by PlayerMoveEvent.
+            // This prevents high-speed packet streams from evading the slower
+            // periodic Location sample while preserving a sampler for hovering.
+            double acceptedHorizontal;
+            boolean acceptedUnsupported;
+            boolean acceptedSupported;
+            synchronized (state) {
+                acceptedHorizontal = state.hungerAcceptedHorizontal;
+                acceptedUnsupported = state.hungerAcceptedUnsupported;
+                acceptedSupported = state.hungerAcceptedSupported;
+                state.hungerAcceptedHorizontal = 0.0;
+                state.hungerAcceptedUnsupported = false;
+                state.hungerAcceptedSupported = false;
+            }
+
             // Horizontal-only speed: diagonal flight counts once at its real
             // horizontal rate, never compounded with a vertical component.
-            double rawSpeedBps = horizontalDistance(prev, pos) / elapsedSeconds;
+            double sampledSpeedBps = horizontalDistance(prev, pos) / elapsedSeconds;
+            double rawSpeedBps = Math.max(sampledSpeedBps, acceptedHorizontal / elapsedSeconds);
+            // A supported sample (or landing move) wins over earlier airborne
+            // movement in the same interval: landing cancels pending debt.
+            if (!unsupported || acceptedSupported) {
+                unsupported = false;
+                rawSpeedBps = 0.0;
+                state.hungerDebt = 0.0;
+            } else {
+                unsupported |= acceptedUnsupported;
+            }
 
             // Rocket grace only covers recent firework boosts.
             boolean recentRocket = gliding
@@ -379,7 +422,7 @@ public final class AntiFlyListener implements Listener {
                     double hoverNormalized = Math.min(1.0, settings.hungerModeAirborneMinimumBlocksPerSecond
                         / settings.hungerModeMaxBlocksPerSecond);
                     hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
-                        * hoverNormalized * hoverNormalized * elapsedSeconds;
+                        * hoverNormalized * elapsedSeconds;
                 } else if (glidingExploit) {
                     // Abnormal elytra speed or no-rocket exploit: speed-based
                     // drain (with elytra multiplier).
@@ -399,8 +442,15 @@ public final class AntiFlyListener implements Listener {
                     speedBlocksPerSecond = Math.max(speedBlocksPerSecond, settings.hungerModeAirborneMinimumBlocksPerSecond);
                 }
                 double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / settings.hungerModeMaxBlocksPerSecond);
-                hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
-                    * normalizedSpeed * normalizedSpeed * elapsedSeconds;
+                // The airborne minimum is a baseline cost, not a squared
+                // 1%-of-max penalty. This keeps idle hovering visible.
+                if (unsupported && rawSpeedBps < settings.hungerModeAirborneMinimumBlocksPerSecond) {
+                    hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
+                        * normalizedSpeed * elapsedSeconds;
+                } else {
+                    hungerLoss = settings.hungerModeHungerPerSecondAtMaxSpeed
+                        * normalizedSpeed * normalizedSpeed * elapsedSeconds;
+                }
             }
 
             // Sustained unsupported flight deals real health damage after the
@@ -447,8 +497,15 @@ public final class AntiFlyListener implements Listener {
                             if (state.flightAirborneSeconds >= next) {
                                 state.lastFlightDamageAtSeconds = state.flightAirborneSeconds;
                                 double dmg = settings.hungerModeFlightDamagePerSecond;
+                                if (player.getFoodLevel() <= 0) {
+                                    // Health units are half-hearts: double the configured
+                                    // penalty at starvation so 1.0 deals one full heart.
+                                    dmg *= 2.0;
+                                }
                                 if (dmg > 0.0) {
-                                    player.damage(dmg, org.bukkit.damage.DamageSource.builder(org.bukkit.damage.DamageType.STARVE).build());
+                                    // Use a separate custom damage event so the flight
+                                    // penalty stacks with vanilla starvation at zero food.
+                                    player.damage(dmg);
                                 }
                             }
                         }
@@ -465,10 +522,12 @@ public final class AntiFlyListener implements Listener {
             }
 
             state.hungerDebt += hungerLoss;
-            int wholeFoodPoints = (int) state.hungerDebt;
-            if (wholeFoodPoints > 0) {
-                player.setFoodLevel(Math.max(0, player.getFoodLevel() - wholeFoodPoints));
-                state.hungerDebt -= wholeFoodPoints;
+            // Apply at most one food point per tick. Larger speed-derived debt
+            // remains queued so the client sees a continuous drain rather than
+            // one delayed bulk update after the player stops moving.
+            if (state.hungerDebt >= 1.0 && player.getFoodLevel() > 0) {
+                player.setFoodLevel(player.getFoodLevel() - 1);
+                state.hungerDebt -= 1.0;
             }
         }
     }

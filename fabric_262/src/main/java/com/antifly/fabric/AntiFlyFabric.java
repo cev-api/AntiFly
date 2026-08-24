@@ -175,6 +175,13 @@ public final class AntiFlyFabric implements ModInitializer {
                         + " noRocketMaxAscent=" + config.elytraNoRocketMaxAscent
                         + " requiredDescentForPullup=" + config.elytraRequiredDescentForPullup
                         + " durabilityCheckEnabled=" + config.elytraDurabilityCheckEnabled), false);
+                    ctx.getSource().sendSuccess(() -> Component.literal("All settable values:"), false);
+                    for (String key : SET_KEYS) {
+                        String value = formatSettingValue(key);
+                        if (value != null) {
+                            ctx.getSource().sendSuccess(() -> Component.literal("  " + key + "=" + value), false);
+                        }
+                    }
                     checkModrinthVersion(ctx.getSource());
                     return 1;
                 }))
@@ -323,7 +330,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 double hoverNormalized = Math.min(1.0, config.hungerModeAirborneMinimumBlocksPerSecond
                     / config.hungerModeMaxBlocksPerSecond);
                 hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed
-                    * hoverNormalized * hoverNormalized / 20.0;
+                    * hoverNormalized / 20.0;
             } else if (glidingExploit) {
                 // Abnormal elytra speed or no-rocket exploit: speed-based
                 // drain (with elytra multiplier).
@@ -343,8 +350,21 @@ public final class AntiFlyFabric implements ModInitializer {
                 speedBlocksPerSecond = Math.max(speedBlocksPerSecond, config.hungerModeAirborneMinimumBlocksPerSecond);
             }
             double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / config.hungerModeMaxBlocksPerSecond);
-            hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed
-                * normalizedSpeed * normalizedSpeed / 20.0;
+            // The airborne minimum is a baseline cost, not a squared
+            // 1%-of-max penalty. This keeps idle hovering visible.
+            if (unsupported && rawSpeedBps < config.hungerModeAirborneMinimumBlocksPerSecond) {
+                hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed
+                    * normalizedSpeed / 20.0;
+            } else {
+                hungerLoss = config.hungerModeHungerPerSecondAtMaxSpeed
+                    * normalizedSpeed * normalizedSpeed / 20.0;
+            }
+        }
+        // Hunger Mode penalizes unsupported flight only. Once support returns,
+        // immediately discard any airborne debt so it cannot drain on landing.
+        if (!unsupported) {
+            hungerLoss = 0.0;
+            state.hungerDebt = 0.0;
         }
         if (state.rocketGraceTicks > 0) {
             state.rocketGraceTicks--;
@@ -391,6 +411,11 @@ public final class AntiFlyFabric implements ModInitializer {
                             // descending fast - skip this tick, deal every 4s
                         } else if (state.flightAirborneTicks % 40 == 0) {
                             float dmg = (float) config.hungerModeFlightDamagePerSecond;
+                            if (player.getFoodData().getFoodLevel() <= 0) {
+                                // Health units are half-hearts: double the configured
+                                // penalty at starvation so 1.0 deals one full heart.
+                                dmg *= 2.0f;
+                            }
                             if (dmg > 0.0f) {
                                 player.hurt(player.damageSources().generic(), dmg);
                             }
@@ -407,10 +432,11 @@ public final class AntiFlyFabric implements ModInitializer {
         }
 
         state.hungerDebt += hungerLoss;
-        int wholeFoodPoints = (int) state.hungerDebt;
-        if (wholeFoodPoints > 0) {
-            player.getFoodData().setFoodLevel(Math.max(0, player.getFoodData().getFoodLevel() - wholeFoodPoints));
-            state.hungerDebt -= wholeFoodPoints;
+        // Apply at most one food point per tick. Any remaining debt carries
+        // forward, producing continuous loss instead of a bulk update.
+        if (state.hungerDebt >= 1.0 && player.getFoodData().getFoodLevel() > 0) {
+            player.getFoodData().setFoodLevel(player.getFoodData().getFoodLevel() - 1);
+            state.hungerDebt -= 1.0;
         }
     }
 
@@ -1554,6 +1580,17 @@ public final class AntiFlyFabric implements ModInitializer {
         "sustainedAirTicksLimit"
     );
     private String normalizeSettingKey(String key) {
+        String normalizedKey = key.replace(".", "");
+        String matchedKey = null;
+        for (String settingKey : SET_KEYS) {
+            if (settingKey.regionMatches(true, 0, "hungerMode", 0, "hungerMode".length())
+                && settingKey.length() >= normalizedKey.length()
+                && settingKey.regionMatches(true, settingKey.length() - normalizedKey.length(), normalizedKey, 0, normalizedKey.length())) {
+                if (matchedKey != null) return key;
+                matchedKey = settingKey;
+            }
+        }
+        if (matchedKey != null) return matchedKey;
         return switch (key) {
             case "groundWalkMax" -> "groundSpeedWalking";
             case "groundMountedMax" -> "groundSpeedMounted";
