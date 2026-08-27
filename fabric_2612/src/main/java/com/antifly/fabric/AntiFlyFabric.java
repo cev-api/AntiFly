@@ -44,6 +44,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.vehicle.boat.Boat;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
@@ -69,6 +70,66 @@ public final class AntiFlyFabric implements ModInitializer {
     private static final Pattern VERSION_NUMBER_PATTERN = Pattern.compile("\"version_number\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern DATE_PUBLISHED_PATTERN = Pattern.compile("\"date_published\"\\s*:\\s*\"([^\"]+)\"");
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private static boolean isOperator(net.minecraft.commands.CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return source.getEntity() == null;
+        }
+        return source.getServer().getPlayerList().isOp(new net.minecraft.server.players.NameAndId(player.getGameProfile()));
+    }
+
+    private static Component header(String text) {
+        return Component.literal("◆ " ).withStyle(ChatFormatting.AQUA)
+            .append(Component.literal(text).withStyle(style -> style.withColor(ChatFormatting.GOLD).withBold(true)))
+            .append(Component.literal(" ◆").withStyle(ChatFormatting.AQUA));
+    }
+
+    private static Component statusLine(String label, String value, boolean positive) {
+        return Component.literal("  " + label + ": ").withStyle(ChatFormatting.GRAY)
+            .append(Component.literal(value).withStyle(positive ? ChatFormatting.GREEN : ChatFormatting.RED));
+    }
+
+    private static void sendHelp(net.minecraft.commands.CommandSourceStack source) {
+        source.sendSuccess(() -> header("AntiFly Commands"), false);
+        source.sendSuccess(() -> Component.literal("▸ Control").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
+        for (String command : new String[]{
+            "/antifly enable", "/antifly disable", "/antifly status",
+            "/antifly hungermode <on|off>", "/antifly alerts <off|game|console|both>",
+            "/antifly debug <on|off>"}) {
+            source.sendSuccess(() -> Component.literal("  " + command).withStyle(ChatFormatting.YELLOW), false);
+        }
+        source.sendSuccess(() -> Component.literal("▸ Players").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
+        for (String command : new String[]{
+            "/antifly exempt <player>", "/antifly unexempt <player>", "/antifly reset <player>"}) {
+            source.sendSuccess(() -> Component.literal("  " + command).withStyle(ChatFormatting.YELLOW), false);
+        }
+        source.sendSuccess(() -> Component.literal("▸ Configuration").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
+        source.sendSuccess(() -> Component.literal("  /antifly disabledworlds <worldName> <true|false>").withStyle(ChatFormatting.YELLOW), false);
+        source.sendSuccess(() -> Component.literal("  /antifly set <key> <value>").withStyle(ChatFormatting.YELLOW), false);
+    }
+    private void sendStatus(net.minecraft.commands.CommandSourceStack source) {
+        source.sendSuccess(() -> header("AntiFly Status"), false);
+        source.sendSuccess(() -> statusLine("Protection", config.enabled ? "ENABLED" : "DISABLED", config.enabled), false);
+        source.sendSuccess(() -> statusLine("Hunger mode", config.hungerModeEnabled ? "ON" : "OFF", !config.hungerModeEnabled), false);
+        source.sendSuccess(() -> statusLine("Alerts", config.alertMode.toString(), true), false);
+        source.sendSuccess(() -> statusLine("Disabled worlds", config.disabledWorlds.isEmpty() ? "none" : String.join(", ", config.disabledWorlds), true), false);
+        source.sendSuccess(() -> Component.literal("Movement limits").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
+        source.sendSuccess(() -> statusLine("Ground", "walk=" + config.groundWalkMax + " | mounted=" + config.groundMountedMax, true), false);
+        source.sendSuccess(() -> statusLine("Water", "horizontal=" + config.waterMax + " | vertical=" + config.waterVerticalMax, true), false);
+        source.sendSuccess(() -> statusLine("Boat", "horizontal=" + config.boatMaxHorizontal, true), false);
+        source.sendSuccess(() -> statusLine("Air", "horizontal=" + config.airMax + " | vertical=" + config.airVerticalMax, true), false);
+        source.sendSuccess(() -> Component.literal("Elytra").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
+        source.sendSuccess(() -> statusLine("Enabled", config.elytraChecksEnabled ? "YES" : "NO", config.elytraChecksEnabled), false);
+        source.sendSuccess(() -> statusLine("Boost grace", String.valueOf(config.elytraBoostGraceTicks), true), false);
+        source.sendSuccess(() -> statusLine("Stall", "ticks=" + config.elytraStallTicks + " | buffer=" + config.elytraMovementBufferLimit, true), false);
+        source.sendSuccess(() -> Component.literal("Settable values").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
+        for (String key : SET_KEYS) {
+            String value = formatSettingValue(key);
+            if (value != null) {
+                source.sendSuccess(() -> Component.literal("  " + key + " = ").withStyle(ChatFormatting.GRAY)
+                    .append(Component.literal(value).withStyle(ChatFormatting.WHITE)), false);
+            }
+        }
+    }
 
     private final AttemptTracker attemptTracker = new AttemptTracker();
     private final Map<UUID, PlayerState> states = new ConcurrentHashMap<>();
@@ -105,19 +166,9 @@ public final class AntiFlyFabric implements ModInitializer {
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(Commands.literal("antifly")
-                .requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_MODERATOR))
+                .requires(source -> isOperator(source) && source.permissions().hasPermission(Permissions.COMMANDS_ADMIN))
                 .then(Commands.literal("help").executes(ctx -> {
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly enable"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly disable"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly hungermode <on|off>"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly status"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly alerts <off|game|console|both>"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly debug <on|off>"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly exempt <player>"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly unexempt <player>"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly disabledworlds <worldName> <true|false>"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly set <key> <value>"), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("/antifly reset <player>"), false);
+                    sendHelp(ctx.getSource());
                     return 1;
                 }))
                 .then(Commands.literal("enable").executes(ctx -> {
@@ -140,49 +191,7 @@ public final class AntiFlyFabric implements ModInitializer {
                         return 1;
                     }))
                 .then(Commands.literal("status").executes(ctx -> {
-                    ctx.getSource().sendSuccess(() -> Component.literal("AntiFly: " + (config.enabled ? "enabled" : "disabled")), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Hunger Mode: " + (config.hungerModeEnabled ? "enabled" : "disabled")), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Disabled worlds: "
-                        + (config.disabledWorlds.isEmpty() ? "(none)" : String.join(", ", config.disabledWorlds))), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Alerts: mode=" + config.alertMode), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Ground/Fluid: groundWalkMax=" + config.groundWalkMax
-                        + " groundMountedMax=" + config.groundMountedMax
-                        + " waterMax=" + config.waterMax
-                        + " waterVerticalMax=" + config.waterVerticalMax
-                        + " boatMaxHorizontal=" + config.boatMaxHorizontal), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Air: maxAirHorizontal=" + config.airMax
-                        + " maxAirVertical=" + config.airVerticalMax
-                        + " noFallDetectionEnabled=" + config.noFallDetectionEnabled
-                        + " airNonFallTicksLimit=" + config.airNonFallTicks
-                        + " antiKickWindowTicks=" + config.antiKickWindowTicks
-                        + " antiKickMinDescent=" + config.antiKickMinDescent
-                        + " voidFallTicks=" + config.voidFallTicks), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Vehicles: vehicleAirGraceTicks=" + config.vehicleAirGraceTicks
-                        + " boatAirGraceTicks=" + config.boatAirGraceTicks
-                        + " horseAirGraceTicks=" + config.horseAirGraceTicks
-                        + " vehicleFallMinDescent=" + config.vehicleFallMinDescent
-                        + " vehicleFallMaxHorizontal=" + config.vehicleFallMaxHorizontal
-                        + " vehicleFallTicksMax=" + config.vehicleFallTicksMax), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Buffers/Setback: bufferDecay=" + config.bufferDecay
-                        + " horizontalBufferLimit=" + config.horizontalBufferLimit
-                        + " verticalBufferLimit=" + config.verticalBufferLimit
-                        + " hoverBufferLimit=" + config.hoverBufferLimit
-                        + " setbackCooldownMs=" + config.setbackCooldownMs), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("Elytra: enabled=" + config.elytraChecksEnabled
-                        + " boostGraceTicks=" + config.elytraBoostGraceTicks
-                        + " stallTicks=" + config.elytraStallTicks
-                        + " movementBufferLimit=" + config.elytraMovementBufferLimit
-                        + " noRocketMaxAscent=" + config.elytraNoRocketMaxAscent
-                        + " requiredDescentForPullup=" + config.elytraRequiredDescentForPullup
-                        + " durabilityCheckEnabled=" + config.elytraDurabilityCheckEnabled), false);
-                    ctx.getSource().sendSuccess(() -> Component.literal("All settable values:"), false);
-                    for (String key : SET_KEYS) {
-                        String value = formatSettingValue(key);
-                        if (value != null) {
-                            ctx.getSource().sendSuccess(() -> Component.literal("  " + key + "=" + value), false);
-                        }
-                    }
-                    checkModrinthVersion(ctx.getSource());
+                    sendStatus(ctx.getSource());
                     return 1;
                 }))
                 .then(Commands.literal("alerts")

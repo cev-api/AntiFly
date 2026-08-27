@@ -128,7 +128,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
     }
 
     boolean canUseAdminCommands(org.bukkit.command.CommandSender sender) {
-        return !(sender instanceof Player player) || player.isOp() || sender.hasPermission("antifly.admin");
+        return !(sender instanceof Player player) || player.isOp();
     }
 
     void checkModrinthVersion(org.bukkit.command.CommandSender sender) {

@@ -8,6 +8,7 @@
   "contact": {},
   "license": "MIT",
   "environment": "server",
+  "mixins": ["antifly.mixins.json"],
   "entrypoints": {
     "main": [
       "com.antifly.fabric.AntiFlyFabric"
