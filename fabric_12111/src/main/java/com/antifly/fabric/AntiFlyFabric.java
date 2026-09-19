@@ -395,6 +395,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 if (gliding && recentRocket && config.hungerModeRocketResetsDamage) {
                     state.flightAirborneTicks = 0;
                     state.hungerDrainTicks = 0;
+                    state.lastFlightDamageAtTicks = -1;
                 } else {
                     if (gliding) {
                         // Elytra: only count time while hunger is actually
@@ -412,15 +413,23 @@ public final class AntiFlyFabric implements ModInitializer {
                     int gateTicks = gliding
                         ? (int) Math.round(config.hungerModeFlightDamageAfterHungerSeconds * 20.0)
                         : (int) Math.round(config.hungerModeFlightDamageAfterSeconds * 20.0);
-                    if (state.flightAirborneTicks > gateTicks) {
+                    boolean starving = player.getFoodData().getFoodLevel() <= 0;
+                    // Reaching zero food is an immediate escalation: the health
+                    // penalty must not wait out the normal flight timer.
+                    if (starving || state.flightAirborneTicks > gateTicks) {
                         // While descending, only tick damage at half frequency so
                         // landing attempts are survivable.
                         double descent = state.lastPos != null ? (pos.y - state.lastPos.y) : 0.0;
-                        if (descent < -0.5 && state.flightAirborneTicks % 80 != 0) {
-                            // descending fast - skip this tick, deal every 4s
-                        } else if (state.flightAirborneTicks % 40 == 0) {
+                        int interval = descent < -0.5 ? 80 : 40;
+                        // The first starvation hit lands at once; later hits wait
+                        // out the interval (-1 means no hit yet this flight).
+                        int next = starving && state.lastFlightDamageAtTicks < 0
+                            ? state.flightAirborneTicks
+                            : state.lastFlightDamageAtTicks + interval;
+                        if (state.flightAirborneTicks >= next) {
+                            state.lastFlightDamageAtTicks = state.flightAirborneTicks;
                             float dmg = (float) config.hungerModeFlightDamagePerSecond;
-                            if (player.getFoodData().getFoodLevel() <= 0) {
+                            if (starving) {
                                 // Health units are half-hearts: double the configured
                                 // penalty at starvation so 1.0 deals one full heart.
                                 dmg *= 2.0f;
@@ -434,10 +443,12 @@ public final class AntiFlyFabric implements ModInitializer {
             } else {
                 state.flightAirborneTicks = 0;
                 state.hungerDrainTicks = 0;
+                state.lastFlightDamageAtTicks = -1;
             }
         } else {
             state.flightAirborneTicks = 0;
             state.hungerDrainTicks = 0;
+            state.lastFlightDamageAtTicks = -1;
         }
 
         state.hungerDebt += hungerLoss;
@@ -501,6 +512,7 @@ public final class AntiFlyFabric implements ModInitializer {
             state.hungerDebt = 0.0;
             state.rocketGraceTicks = 0;
             state.flightAirborneTicks = 0;
+            state.lastFlightDamageAtTicks = -1;
             return;
         }
 
@@ -521,6 +533,7 @@ public final class AntiFlyFabric implements ModInitializer {
         state.hungerDebt = 0.0;
         state.rocketGraceTicks = 0;
         state.flightAirborneTicks = 0;
+        state.lastFlightDamageAtTicks = -1;
 
         boolean inFluid = isInFluid(player);
         boolean inVehicle = player.isPassenger();
@@ -1833,6 +1846,7 @@ public final class AntiFlyFabric implements ModInitializer {
         double vehicleFallMinDescent = AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT;
         double vehicleFallMaxHorizontal = AntiFlyConstants.VEHICLE_FALL_MAX_HORIZONTAL;
         int vehicleFallTicksMax = AntiFlyConstants.VEHICLE_FALL_TICKS_MAX;
+        double boatMaxHorizontal = AntiFlyConstants.BOAT_MAX_HORIZONTAL;
         int vehicleAirGraceTicks = 10;
         int boatAirGraceTicks = 0;
         int horseAirGraceTicks = 24;
@@ -1953,6 +1967,7 @@ public final class AntiFlyFabric implements ModInitializer {
         int rocketGraceTicks;
         double hungerDebt;
         int flightAirborneTicks;
+        int lastFlightDamageAtTicks = -1;
         int teleportGraceTicks;
         int sustainedAirTicks;
         int glideNoRocketTicks;

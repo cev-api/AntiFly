@@ -2,7 +2,7 @@
 
 ![LOGO](https://i.imgur.com/WQqocWS.png)
 
-Lightweight Paper + Fabric flight-control plugin by CevAPI.
+Lightweight Bukkit + Fabric flight-control plugin by CevAPI.
 
 Current release: `1.1.3`
 
@@ -15,8 +15,8 @@ AntiFly is not a full anti-cheat - it focuses on flight/movement abuse with laye
 - Hunger Mode, a configurable food/health tax instead of hard blocks
 
 ## Platforms
-- Paper: 1.21.1-26.2 (Folia-supported)
-- Fabric: 1.21.11 / 26.1.2 / 26.2
+- Bukkit family: 1.21.x - 26.3 (Bukkit, Spigot, Paper, Purpur, Folia)
+- Fabric: 1.21.11 / 26.1.2 / 26.2 / 26.3
 
 ## Build
 ```bash
@@ -24,8 +24,19 @@ AntiFly is not a full anti-cheat - it focuses on flight/movement abuse with laye
 ```
 Artifacts land in `paper/build/libs/` and each `fabric_*/build/libs/`.
 
+## Server compatibility
+The Paper build is compiled once against the oldest supported API (1.21.1) so a single jar runs on every Bukkit-family server from 1.21.x up to 26.3. Every build re-verifies that the sources still link against the oldest Paper API, the newest Paper API, and plain Spigot/Bukkit:
+```bash
+./gradlew :paper:checkPaperApiCompatibility
+```
+Anything that only exists on some servers is probed at runtime and falls back to plain Bukkit:
+- region schedulers (Paper/Purpur/Folia) with a Bukkit scheduler fallback
+- Folia entity scheduling so Hunger Mode food and health changes run on the thread that owns the player
+- `Entity#isInLava()` with a block probe fallback
+- the Adventure action bar (Paper family); servers without it simply show no debug action bar
+
 ## Install
-- Paper: drop the jar into `plugins/`
+- Bukkit family: drop the jar into `plugins/`
 - Fabric: drop the jar into `mods/`
 
 ## Commands

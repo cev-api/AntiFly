@@ -1,7 +1,6 @@
 package com.antifly.paper;
 
 import java.util.EnumSet;
-import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
@@ -103,7 +102,7 @@ public final class AntiFlyListener implements Listener {
 
         updateFlightAuthorization(player, state);
 
-        boolean inFluid = player.isInWater() || player.isInLava() || player.isSwimming();
+        boolean inFluid = player.isInWater() || PlatformCompat.isInLava(player) || player.isSwimming();
         boolean inVehicle = player.isInsideVehicle();
         boolean inBoatWater = inVehicle && player.getVehicle() instanceof Boat boat && isBoatInFluid(boat);
         boolean boatOnSupport = inVehicle && player.getVehicle() instanceof Boat boat && hasBoatGroundSupport(boat);
@@ -348,7 +347,7 @@ public final class AntiFlyListener implements Listener {
             state.lastHungerSampleMs = nowMs;
             state.lastHungerSamplePos = pos.clone();
 
-            boolean inFluid = player.isInWater() || player.isInLava() || player.isSwimming();
+            boolean inFluid = player.isInWater() || PlatformCompat.isInLava(player) || player.isSwimming();
             // A vehicle only excuses the hover penalty when it is itself
             // supported (boat on water/ground, mount standing) - flying in a
             // boat is penalized like any other unsupported flight.
@@ -518,7 +517,8 @@ public final class AntiFlyListener implements Listener {
                                 if (dmg > 0.0) {
                                     // Use a separate custom damage event so the flight
                                     // penalty stacks with vanilla starvation at zero food.
-                                    player.damage(dmg);
+                                    double flightDamage = dmg;
+                                    PlatformCompat.runForPlayer(plugin, player, () -> player.damage(flightDamage));
                                 }
                             }
                         }
@@ -541,7 +541,9 @@ public final class AntiFlyListener implements Listener {
             if (state.hungerDebt >= 1.0 && player.getFoodLevel() > 0) {
                 int foodBefore = player.getFoodLevel();
                 int foodAfter = foodBefore - 1;
-                player.setFoodLevel(foodAfter);
+                // Entity state changes are only permitted on the owning region
+                // thread on Folia; elsewhere this runs inline.
+                PlatformCompat.runForPlayer(plugin, player, () -> player.setFoodLevel(foodAfter));
                 state.hungerDebt -= 1.0;
 
                 // The final food point was removed by this flight tick. Apply
@@ -558,7 +560,8 @@ public final class AntiFlyListener implements Listener {
                         // This is an explicit zero-food flight escalation, so deduct
                         // the health directly rather than letting that immunity or
                         // another damage listener defer the required penalty.
-                        player.setHealth(Math.max(0.0, player.getHealth() - dmg));
+                        double healthAfter = Math.max(0.0, player.getHealth() - dmg);
+                        PlatformCompat.runForPlayer(plugin, player, () -> player.setHealth(healthAfter));
                         state.lastFlightDamageAtSeconds = state.flightAirborneSeconds;
                     }
                 }
@@ -1275,9 +1278,13 @@ public final class AntiFlyListener implements Listener {
             + ChatColor.AQUA + String.format("actual=%.3f allowed=%.3f", actual, allowed)
             + ChatColor.DARK_GRAY + ")";
         for (Player viewer : Bukkit.getOnlinePlayers()) {
-            if (viewer.isOp() || viewer.hasPermission("antifly.alerts")) {
-                viewer.sendMessage(msg);
-            }
+            // On Folia each viewer has to be messaged from the thread that owns
+            // them; on Paper and Spigot this runs inline exactly as before.
+            PlatformCompat.runForPlayer(plugin, viewer, () -> {
+                if (viewer.isOp() || viewer.hasPermission("antifly.alerts")) {
+                    viewer.sendMessage(msg);
+                }
+            });
         }
     }
 
@@ -1318,7 +1325,7 @@ public final class AntiFlyListener implements Listener {
             state.antiKickWindowTicks,
             plugin.getSettings().antiKickWindowTicks
         );
-        player.sendActionBar(Component.text(text));
+        PlatformCompat.sendActionBar(player, text);
     }
 
 }

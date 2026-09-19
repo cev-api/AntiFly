@@ -2,13 +2,13 @@ package com.antifly.paper;
 
 import com.antifly.common.AntiFlyConstants;
 import com.antifly.common.AttemptTracker;
-import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.bukkit.Bukkit;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -18,7 +18,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
     private final Map<UUID, PlayerState> states = new ConcurrentHashMap<>();
     private final Set<UUID> exempt = ConcurrentHashMap.newKeySet();
     private final Set<UUID> debug = ConcurrentHashMap.newKeySet();
-    private final Set<UUID> notifiedOutdatedOps = new HashSet<>();
+    private final Set<UUID> notifiedOutdatedOps = ConcurrentHashMap.newKeySet();
     private final Settings settings = new Settings();
     private boolean antiFlyEnabled = true;
     private AntiFlyListener listener;
@@ -28,12 +28,18 @@ public final class AntiFlyPlugin extends JavaPlugin {
         loadConfigValues();
         listener = new AntiFlyListener(this);
         Bukkit.getPluginManager().registerEvents(listener, this);
-        getCommand("antifly").setExecutor(new AntiFlyCommand(this));
-        getCommand("antifly").setTabCompleter(new AntiFlyCommand(this));
+        PluginCommand command = getCommand("antifly");
+        if (command == null) {
+            getLogger().warning("Could not register /antifly - another plugin already owns that command.");
+        } else {
+            AntiFlyCommand executor = new AntiFlyCommand(this);
+            command.setExecutor(executor);
+            command.setTabCompleter(executor);
+        }
         // Evaluate Hunger Mode every tick so accumulated movement debt is paid
         // continuously. The listener still measures elapsed wall-clock time,
         // so this does not increase the configured per-second drain rate.
-        Bukkit.getGlobalRegionScheduler().runAtFixedRate(this, scheduledTask -> {
+        PlatformCompat.runGlobalAtFixedRate(this, () -> {
             if (listener != null) {
                 listener.hungerModeTick();
             }
@@ -154,11 +160,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
     }
 
     private void runOnSenderContext(org.bukkit.command.CommandSender sender, Runnable task) {
-        if (sender instanceof Player player) {
-            player.getScheduler().run(this, scheduledTask -> task.run(), null);
-        } else {
-            Bukkit.getGlobalRegionScheduler().run(this, scheduledTask -> task.run());
-        }
+        PlatformCompat.runForSender(this, sender, task);
     }
 
     void addExempt(UUID uuid) {
@@ -556,7 +558,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
     private void checkModrinthVersionAndAlertOps() {
         String currentVersion = getDescription().getVersion();
         ModrinthVersionChecker.checkLatest(this, settings.modrinthProjectSlug, result -> {
-            Bukkit.getGlobalRegionScheduler().run(this, scheduledTask -> {
+            PlatformCompat.runGlobal(this, () -> {
             if (!result.ok) {
                 getLogger().warning("Modrinth version check failed: " + result.error);
                 return;
@@ -568,9 +570,11 @@ public final class AntiFlyPlugin extends JavaPlugin {
             String msg = "AntiFly is outdated: running " + currentVersion + ", Modrinth has " + result.latestVersion;
             getLogger().warning(msg);
             for (Player player : Bukkit.getOnlinePlayers()) {
-                if ((player.isOp() || player.hasPermission("antifly.admin")) && notifiedOutdatedOps.add(player.getUniqueId())) {
-                    player.sendMessage(org.bukkit.ChatColor.RED + msg);
-                }
+                PlatformCompat.runForPlayer(this, player, () -> {
+                    if ((player.isOp() || player.hasPermission("antifly.admin")) && notifiedOutdatedOps.add(player.getUniqueId())) {
+                        player.sendMessage(org.bukkit.ChatColor.RED + msg);
+                    }
+                });
             }
             });
         });

@@ -3,9 +3,24 @@ plugins {
     id 'io.papermc.paperweight.userdev' version '1.7.1'
 }
 
+// The plugin is compiled against the oldest supported Paper API (see
+// paper_version) so one jar runs on every 1.21.x - 26.3 server flavour. These
+// extra configurations exist purely to prove that the same sources still link
+// against the newest API we claim to support and against plain Spigot/Bukkit,
+// so a removed or renamed method fails the build instead of a player's server.
+configurations {
+    newestPaperApi
+    oldestPaperApi
+    spigotApi
+}
+
 dependencies {
     implementation project(':common')
     paperweight.paperDevBundle("${paper_version}")
+
+    newestPaperApi "io.papermc.paper:paper-api:${newest_supported_paper_api}"
+    oldestPaperApi "io.papermc.paper:paper-api:${oldest_supported_paper_api}"
+    spigotApi "org.spigotmc:spigot-api:${spigot_api_version}"
 }
 
 tasks.jar {
@@ -28,4 +43,31 @@ tasks.processResources {
     filesMatching('plugin.yml') {
         expand version: project.version
     }
+}
+
+def registerPaperApiCheck = { String taskName, String configurationName, String label ->
+    tasks.register(taskName, JavaCompile) {
+        group = 'verification'
+        description = "Compiles the plugin sources against the ${label} API"
+        dependsOn ':common:classes'
+        source = sourceSets.main.java
+        classpath = configurations.getByName(configurationName) + files(project(':common').sourceSets.main.output)
+        destinationDirectory = layout.buildDirectory.dir("tmp/${taskName}")
+        options.encoding = 'UTF-8'
+        options.release = 21
+    }
+}
+
+def checkOldestPaperApi = registerPaperApiCheck('checkOldestPaperApi', 'oldestPaperApi', 'oldest supported (1.21.x)')
+def checkNewestPaperApi = registerPaperApiCheck('checkNewestPaperApi', 'newestPaperApi', 'newest supported (26.3)')
+def checkSpigotApi = registerPaperApiCheck('checkSpigotApi', 'spigotApi', 'plain Spigot/Bukkit')
+
+tasks.register('checkPaperApiCompatibility') {
+    group = 'verification'
+    description = 'Verifies the plugin still links against every supported server API range'
+    dependsOn checkOldestPaperApi, checkNewestPaperApi, checkSpigotApi
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('checkPaperApiCompatibility')
 }
