@@ -1,0 +1,9 @@
+# Normalize text files to LF in the repository and on checkout.
+* text=auto eol=lf
+
+# Windows batch scripts must keep CRLF to run correctly.
+*.bat text eol=crlf
+
+# Binaries - never convert.
+*.jar binary
+*.png binary

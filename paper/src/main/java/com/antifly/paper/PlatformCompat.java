@@ -39,9 +39,10 @@ final class PlatformCompat {
                 GLOBAL_SCHEDULER_RUN.invoke(GET_GLOBAL_REGION_SCHEDULER.invoke(null), plugin, consumerOf(task));
                 return;
             } catch (ReflectiveOperationException | RuntimeException ignored) {
-                // Fall through to the classic scheduler below.
+                // Folia has no safe classic scheduler fallback.
             }
         }
+        if (FOLIA) return;
         Bukkit.getScheduler().runTask(plugin, task);
     }
 
@@ -52,9 +53,10 @@ final class PlatformCompat {
                     consumerOf(task), delayTicks, periodTicks);
                 return;
             } catch (ReflectiveOperationException | RuntimeException ignored) {
-                // Fall through to the classic scheduler below.
+                // Folia has no safe classic scheduler fallback.
             }
         }
+        if (FOLIA) return;
         Bukkit.getScheduler().runTaskTimer(plugin, task, delayTicks, periodTicks);
     }
 
@@ -69,9 +71,10 @@ final class PlatformCompat {
                 ENTITY_SCHEDULER_RUN.invoke(PLAYER_GET_SCHEDULER.invoke(player), plugin, consumerOf(task), (Runnable) null);
                 return;
             } catch (ReflectiveOperationException | RuntimeException ignored) {
-                // Fall through to the main-thread path below.
+                // The task must not touch this entity from another region.
             }
         }
+        if (FOLIA) return;
         if (Bukkit.isPrimaryThread()) {
             task.run();
         } else {

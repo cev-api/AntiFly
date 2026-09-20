@@ -1,3 +1,6 @@
+// Every Fabric target compiles the exact same source tree (fabric_shared/).
+// Only the Minecraft, loader and API versions below differ, so there is no
+// per-version Java code to keep in sync.
 plugins {
     id 'net.fabricmc.fabric-loom' version '1.17.14'
 }
@@ -13,6 +16,13 @@ dependencies {
     implementation "net.fabricmc:fabric-loader:${fabric263_loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${fabric263_api_version}"
     implementation commonProject
+}
+
+sourceSets {
+    main {
+        java.setSrcDirs([rootProject.file('fabric_shared/src/main/java')])
+        resources.setSrcDirs([rootProject.file('fabric_shared/src/main/resources')])
+    }
 }
 
 tasks.processResources {

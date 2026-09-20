@@ -1,7 +1,0 @@
-{
-  "required": true,
-  "package": "com.antifly.fabric.mixin",
-  "compatibilityLevel": "JAVA_25",
-  "mixins": ["CommandSuggestionMixin"],
-  "injectors": {"defaultRequire": 1}
-}

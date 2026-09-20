@@ -2,17 +2,38 @@
 
 ![LOGO](https://i.imgur.com/WQqocWS.png)
 
-Lightweight Bukkit + Fabric flight-control plugin by CevAPI.
+**Flight restriction that does one job properly.** Lightweight Bukkit + Fabric plugin/mod by [CevAPI](https://cevapi.dev).
 
-Current release: `1.1.3`
+Current release: `1.1.4`
 
-AntiFly is not a full anti-cheat - it focuses on flight/movement abuse with layered checks:
-- server-side ground/support truth (never trusts client `onGround`)
-- buffered air/hover/anti-kick suspicion + sustained-air detection
-- disciplined setbacks to last known valid support
-- Elytra checks that only flag what vanilla physics can't do (speed, instant vertical, stall)
-- teleport-aware rebasing; `/tp`, pearls, chorus, portals never trigger setbacks
-- Hunger Mode, a configurable food/health tax instead of hard blocks
+AntiFly is not a full anti-cheat, and that is deliberate. It is built for servers that want to restrict **flight and nothing else** - no reach checks, no killaura heuristics, no combat module quietly flagging your players at 3am. What you get instead is flight control accurate enough to leave legitimate movement alone.
+
+## Why AntiFly
+
+- **It never trusts the client.** Ground and support are verified server-side. A client claiming `onGround` cannot talk its way past a check.
+- **Layered detection, not one threshold.** Buffered air, hover and anti-kick suspicion sit alongside a sustained-air backstop, so slow level flight and gentle bobbing are caught - not just obvious speed hacks.
+- **Setbacks nobody complains about.** Players are corrected to their last known valid support instead of being yanked out of the sky mid-air.
+- **Elytra handled properly.** A trajectory verifier predicts the next vanilla glide step from pitch, yaw and prior velocity, then weighs residual motion, excess energy, unnaturally constant speed and impossible turns - and only acts when several channels agree. Rocket boosts, steep dives, pull-ups and obstacle crashes are all left alone.
+- **Teleport-aware.** `/tp`, ender pearls, chorus fruit and portals are rebased rather than mistaken for flight, so legitimate travel never rubber-bands.
+- **It does not advertise itself.** The root command is permission-gated on both platforms so clients that probe a server's command list with suggestion packets get nothing back. 
+- **One shared codebase.** The same checks run on Paper and Fabric, so a detection is never fixed on one platform and forgotten on the other.
+
+## Hunger Mode
+
+Hard blocks are not always what a survival server wants. `/antifly hungermode on` replaces them with a penalty that fits the game:
+
+- **Food drains first**, scaling with speed and never falling below a minimum while airborne - so an idle hoverer still pays.
+- **Then health**, once the flight has lasted long enough (or the player is already starving). Damage ticks slowly, so a landing attempt is always survivable.
+- **Vanilla gliding and rockets stay free** unless the movement shows genuine exploit evidence.
+
+The upshot: no rubber-banding, no teleport-loop complaints, and an economy that discourages flight naturally instead of a wall that just frustrates players.
+
+## Void access - new in 1.1.4
+
+A bonus toggle for servers that want to close off the void as well. `/antifly voidaccess off` covers the **Nether roof (Y ≥ 128)**, the **void below the Nether** and the **void below the Overworld**.
+
+- With Hunger Mode off, players who enter are returned to their last safe position, including while mounted.
+- With Hunger Mode on, entry is allowed but costs health directly - one hit on entry, then once per second while they stay. The usual hunger phase is skipped here, and exempt players are spared.
 
 ## Platforms
 - Bukkit family: 1.21.x - 26.3 (Bukkit, Spigot, Paper, Purpur, Folia)
@@ -24,6 +45,8 @@ AntiFly is not a full anti-cheat - it focuses on flight/movement abuse with laye
 ```
 Artifacts land in `paper/build/libs/` and each `fabric_*/build/libs/`.
 
+All four Fabric targets compile one shared source tree (`fabric_shared/`). Only the Minecraft, loader and Fabric API versions in each `fabric_*/build.gradle` differ, so there is no per-version Java code to keep in sync - a change to the checks is automatically in every Fabric jar.
+
 ## Server compatibility
 The Paper build is compiled once against the oldest supported API (1.21.1) so a single jar runs on every Bukkit-family server from 1.21.x up to 26.3. Every build re-verifies that the sources still link against the oldest Paper API, the newest Paper API, and plain Spigot/Bukkit:
 ```bash
@@ -31,7 +54,7 @@ The Paper build is compiled once against the oldest supported API (1.21.1) so a 
 ```
 Anything that only exists on some servers is probed at runtime and falls back to plain Bukkit:
 - region schedulers (Paper/Purpur/Folia) with a Bukkit scheduler fallback
-- Folia entity scheduling so Hunger Mode food and health changes run on the thread that owns the player
+- Folia entity scheduling so Hunger Mode health changes run on the thread that owns the player
 - `Entity#isInLava()` with a block probe fallback
 - the Adventure action bar (Paper family); servers without it simply show no debug action bar
 
@@ -40,51 +63,29 @@ Anything that only exists on some servers is probed at runtime and falls back to
 - Fabric: drop the jar into `mods/`
 
 ## Commands
-Same set on Paper & Fabric. Requires op / `antifly.admin` on Paper, moderator-level on Fabric.
+The same set on Paper and Fabric. Requires op or `antifly.admin` on Paper, moderator-level permissions on Fabric.
 
 - `/antifly enable|disable|status|help`
-- `/antifly hungermode <on|off>`
-- `/antifly set` - lists every tunable key with its current value
-- `/antifly set <key>` - read one value (accepts canonical keys, unambiguous section-child names, and dotted YAML paths)
-- `/antifly set <key> <value>` - set one (applies instantly, auto-saves)
-- `/antifly alerts <off|game|console|both>`
-- `/antifly debug <on|off>`
-- `/antifly exempt <player>` / `/antifly unexempt <player>`
-- `/antifly reset <player>`
-- `/antifly disabledworlds <worldName> <true|false>`
+- `/antifly hungermode <on|off>` - swap hard blocks for the hunger and health penalty
+- `/antifly voidaccess <on|off>` - allow or block the void (default on)
+- `/antifly alerts <off|game|console|both>` - where violation alerts are delivered
+- `/antifly reload` - re-read the config from disk, no restart needed
+- `/antifly set` - list every tunable key with its current value
 
-## Tuning keys
-All adjustable live via `/antifly set`. Defaults in brackets.
+Also available: `/antifly set <key> [value]`, `/antifly debug`, `/antifly exempt` / `unexempt`, `/antifly reset` and `/antifly disabledworlds`. The full command reference is in **[CONFIGURATION.md](CONFIGURATION.md)**.
 
-### Movement
-`groundWalkMax` (0.67) · `groundMountedMax` (0.75) · `waterMax` (0.55) · `waterVerticalMax` (0.7) · `boatMaxHorizontal` (0.85) · `maxAirHorizontal` (1.8) · `maxAirVertical` (1.0) · `sustainedAirTicksLimit` (150)
+## Configuration
+Every check is tunable at runtime with `/antifly set <key> <value>`. Changes apply instantly and auto-save, so there is no restart and no file editing.
 
-### Elytra
-Same keys on both platforms. On Fabric the rocket/no-rocket variants map to the single caps `elytraMaxHorizontal` (6.0) and `elytraMaxUp` (4.0); on Paper they're independent.
-- `elytraMaxHorizontal` / `elytraNoRocketSustainableHorizontal` / `elytraMaxRocketHorizontal`
-- `elytraMaxUp` / `elytraMaxNoRocketUp` / `elytraMaxRocketUp`
-- `elytraEnabled` · `elytraBoostGraceTicks` · `elytraStallTicks` · `elytraMovementBufferLimit`
+Defaults are chosen to stay forgiving of vanilla movement - sprinting, Depth Strider, Dolphin's Grace, Speed potions, wind charges, knockback and rockets are all expected and unpunished - so the common case really is "install it and leave it alone".
 
-### Hunger Mode
-- `hungerModeMaxBlocksPerSecond` (200) · `hungerModeHungerPerSecondAtMaxSpeed` (10) · `hungerModeRocketGraceTicks` (80) · `hungerModeAirborneMinimumBlocksPerSecond` (20)
-- `hungerModeFlightDamageEnabled` (true) · `hungerModeFlightDamageAfterSeconds` (20) · `hungerModeFlightDamageAfterHungerSeconds` (30) · `hungerModeFlightDamagePerSecond` (1)
-- `hungerModeElytraFoodEnabled` (true) · `hungerModeElytraFoodMultiplier` (0.5) · `hungerModeElytraSpeedThresholdBps` (50) · `hungerModeElytraNoRocketAfterSeconds` (45) · `hungerModeElytraDamageEnabled` (true) · `hungerModeRocketResetsDamage` (true)
+- Paper / Bukkit: `plugins/AntiFly/config.yml`
+- Fabric: `config/antifly.json`
 
-## Hunger Mode
-- `/antifly hungermode on` replaces hard movement blocks with a food-and-health penalty. It uses server-accepted movement and does not trust client `onGround`.
-- Above the airborne floor, drain scales quadratically with horizontal speed. The airborne minimum is a linear hover baseline: with `maxBlocksPerSecond: 200`, `airborneMinimumBlocksPerSecond: 20`, and `hungerPerSecondAtMaxSpeed: 5`, idle hovering costs 0.5 food points/sec.
-- Food loss is applied continuously (at most one food point per tick); landing or regaining support immediately clears any pending flight debt.
-- Unsupported non-Elytra flight normally starts health damage after 20 seconds. Reaching food level 0 escalates immediately to flight damage; `flightDamagePerSecond` is measured in health points (1.0 = half a heart), and is doubled at zero food (so 1.0 = one full heart). Flight damage is generic, so it stacks with vanilla starvation.
-- Elytra is only punished when exploiting: above the speed threshold, hover-hacking, or gliding too long without a rocket. Rocket-assisted vanilla gliding is free; Elytra health damage otherwise starts after its configured active-drain period.
-
-## Notes on Elytra
-- Checks only block what vanilla can't do: sustained speed beyond ~6 b/t, instant climbs beyond ~4 b/t, and stall-hovering. Steep dives, pull-ups, rocket boosts and crashing into obstacles are all allowed.
-- Repeated ground-flag spoofing can't refresh landing grace; sustained flat-air movement is blocked after 20 air ticks at 0.45 b/t.
+**[CONFIGURATION.md](CONFIGURATION.md)** documents every key and its default, the full command reference, the Elytra trajectory verifier in depth, Hunger Mode and void tuning, and which keys are platform-specific.
 
 ## Permissions (Paper)
 - `antifly.admin` (default: op) · `antifly.alerts` (default: op)
 
-## Config
-- Paper: `plugins/AntiFly/config.yml` · Fabric: `config/antifly.json`
-- Disable AntiFly per world with `disabledWorlds: []` on either platform
-- Modrinth check (slug `antiflight`): `/antifly status` + startup warning when outdated
+## License
+GNU General Public License v3.0 or later (GPL-3.0-or-later) - see [LICENSE.txt](LICENSE.txt).

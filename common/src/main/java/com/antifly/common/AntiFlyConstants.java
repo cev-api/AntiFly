@@ -48,6 +48,50 @@ public final class AntiFlyConstants {
     public static final double BASE_AIR_VERTICAL_MAX = 0.55;
     public static final double AIR_VERTICAL_BUFFER = 0.10;
 
+    // External impulses (wind charges, TNT/bed explosions, mace smashes, mob
+    // knockback) yank the player far harder than any legitimate input can in a
+    // single tick. A vanilla jump only gains 0.42 blocks/tick, so a gain above
+    // IMPULSE_MIN_VELOCITY_GAIN that also leaves the player moving faster than
+    // IMPULSE_MIN_RESULTING_VELOCITY can only come from outside the client.
+    // Landing produces a velocity LOSS, so it never qualifies.
+    public static final double IMPULSE_MIN_VELOCITY_GAIN = 0.50;
+    public static final double IMPULSE_MIN_RESULTING_VELOCITY = 0.60;
+    public static final int IMPULSE_GRACE_TICKS = 20;
+
+    // A one-shot stopFallFlying() is undone by a hacked client that simply
+    // re-sends START_FALL_FLYING on the next tick, so a violation has to
+    // suppress gliding for a while instead. Refusing the re-deploy is what
+    // turns detection into an actual penalty.
+    public static final int ELYTRA_GLIDE_SUPPRESSION_TICKS = 60;
+
+    // A vanilla glide that climbs does so by converting momentum, so the climb
+    // rate DECAYS within a few ticks (measured: +1.245, +0.719, +0.024, then
+    // negative). A hack that writes velocity directly holds a constant climb
+    // forever. Sustained climb is therefore the discriminator that a net
+    // altitude threshold alone cannot provide.
+    public static final double ELYTRA_SUSTAINED_CLIMB_MIN_DELTA_Y = 0.20;
+    public static final int ELYTRA_SUSTAINED_CLIMB_TICKS = 60;
+
+    // Hover detection suppresses itself only when the player is this close to
+    // real ground. The wider isNearGround offset left a band where a stationary
+    // hoverer was airborne but never counted as hovering.
+    public static final double HOVER_GROUND_SUPPRESSION_DEPTH = 0.08;
+
+    // Water movement scales with the vanilla speed modifiers, exactly like the
+    // ground check already does for sprinting and Speed potions.
+    public static final double WATER_SPEED_DEPTH_STRIDER_PER_LEVEL = 0.20;
+    public static final double WATER_SPEED_DOLPHINS_GRACE = 0.40;
+
+    // Touching down must not erase an accumulated flight-damage timer, but it
+    // should still recover faster than the timer built up.
+    public static final double DAMAGE_TIMER_RECOVERY_MULTIPLIER = 2.0;
+
+    // A setback must not clear the running violation count, otherwise a player
+    // who is corrected and immediately continues looks identical to a
+    // first-time offender in the logs.
+    public static final long REPEAT_OFFENDER_WINDOW_MS = 300_000L;
+    public static final long REPEAT_OFFENDER_COOLDOWN_MS = 60_000L;
+
     private AntiFlyConstants() {
     }
 }

@@ -23,9 +23,12 @@ dependencies {
     spigotApi "org.spigotmc:spigot-api:${spigot_api_version}"
 }
 
+// The dev (Mojang-mapped) jar is only an input for reobfJar, so keep it out of
+// libs/. Otherwise it sits next to the real release jar and is easy to ship by mistake.
 tasks.jar {
     archiveBaseName = 'AntiFly-paper'
     archiveClassifier = 'dev'
+    destinationDirectory = layout.buildDirectory.dir('tmp/devJar')
     from(project(':common').sourceSets.main.output)
 }
 

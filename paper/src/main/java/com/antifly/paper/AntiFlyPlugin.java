@@ -178,7 +178,22 @@ public final class AntiFlyPlugin extends JavaPlugin {
         attemptTracker.reset(uuid);
     }
 
+    /**
+     * Re-reads config.yml from disk so operators can edit values by hand
+     * without restarting the server. Everything tracked per player is left
+     * alone; only the tunables and world/exempt lists are refreshed.
+     */
+    void reloadAntiFlyConfig() {
+        reloadConfig();
+        loadConfigValues();
+    }
+
     boolean updateSetting(String key, double value) {
+        if (settings.elytraVerifierTuning.update(normalizeSettingKey(key), value)) {
+            writeSettingsToConfig(getConfig());
+            saveConfig();
+            return true;
+        }
         switch (normalizeSettingKey(key)) {
             case "groundWalkMax" -> settings.groundWalkMax = value;
             case "groundMountedMax" -> settings.groundMountedMax = value;
@@ -197,6 +212,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "hoverBufferLimit" -> settings.hoverBufferLimit = value;
             case "noFallDetectionEnabled" -> settings.noFallDetectionEnabled = value > 0.5;
             case "sustainedAirTicksLimit" -> settings.sustainedAirTicksLimit = Math.max(1, (int) Math.round(value));
+            case "sustainedAirMinDescent" -> settings.sustainedAirMinDescent = Math.max(0, value);
             case "airNonFallTicksLimit" -> settings.airNonFallTicksLimit = (int) Math.round(value);
             case "antiKickWindowTicks" -> settings.antiKickWindowTicks = (int) Math.round(value);
             case "antiKickMinDescent" -> settings.antiKickMinDescent = value;
@@ -219,6 +235,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "elytraMovementBufferLimit" -> settings.elytraMovementBufferLimit = value;
             case "elytraDurabilityCheckEnabled" -> settings.elytraDurabilityCheckEnabled = value > 0.5;
             case "elytraNoRocketMaxAscent" -> settings.elytraNoRocketMaxAscent = value;
+            case "elytraSustainedClimbTicksLimit" -> settings.elytraSustainedClimbTicksLimit = Math.max(1, (int) Math.round(value));
+            case "elytraVerifierMode" -> settings.elytraVerifierMode = value > 0.5 ? "enforce" : "off";
+            case "elytraGlideSuppressionTicks" -> settings.elytraGlideSuppressionTicks = Math.max(0, (int) Math.round(value));
             case "elytraRequiredDescentForPullup" -> settings.elytraRequiredDescentForPullup = value;
             case "elytraMaxRocketHorizontal" -> settings.elytraMaxRocketHorizontal = value;
             case "elytraMaxRocketUp" -> settings.elytraMaxRocketUp = value;
@@ -238,6 +257,12 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "hungerModeElytraNoRocketAfterSeconds" -> settings.hungerModeElytraNoRocketAfterSeconds = Math.max(1.0, value);
             case "hungerModeElytraDamageEnabled" -> settings.hungerModeElytraDamageEnabled = value > 0.5;
             case "hungerModeRocketResetsDamage" -> settings.hungerModeRocketResetsDamage = value > 0.5;
+            case "impulseGraceTicks" -> settings.impulseGraceTicks = Math.max(0, (int) Math.round(value));
+            case "groundSpoofTicksLimit" -> settings.groundSpoofTicksLimit = Math.max(1, (int) Math.round(value));
+            case "vehicleFallMinDescent" -> settings.vehicleFallMinDescent = value;
+            case "vehicleFallMaxHorizontal" -> settings.vehicleFallMaxHorizontal = value;
+            case "vehicleFallTicksMax" -> settings.vehicleFallTicksMax = Math.max(1, (int) Math.round(value));
+            case "repeatOffenderAlertCount" -> settings.repeatOffenderAlertCount = Math.max(1, (int) Math.round(value));
             default -> {
                 return false;
             }
@@ -247,8 +272,71 @@ public final class AntiFlyPlugin extends JavaPlugin {
         return true;
     }
 
+    void setVoidAccess(boolean enabled) {
+        settings.voidAccess = enabled;
+        getConfig().set("voidAccess", enabled);
+        saveConfig();
+    }
+
+    void setElytraVerifierMode(String mode) {
+        settings.elytraVerifierMode = mode;
+        getConfig().set("elytra.verifierMode", mode);
+        saveConfig();
+    }
+
     PlayerState getState(Player player) {
         return states.computeIfAbsent(player.getUniqueId(), ignored -> new PlayerState());
+    }
+
+    /**
+     * Brings an older config.yml forward. Every entry below is a value that
+     * shipped as a default in an earlier release and was later raised because
+     * it flagged movement vanilla players actually do. Changing a default in
+     * code alone only affects fresh installs, since Bukkit keeps whatever the
+     * existing file already stored - which is how an untouched install ends up
+     * rubber-banding every normal glide. A value that is still exactly an old
+     * default was never tuned, so it is raised; anything else is a deliberate
+     * choice and is left alone.
+     */
+    private void migrateLegacyDefaults(FileConfiguration config) {
+        final int currentVersion = 4;
+        if (config.getInt("config-version", 0) >= currentVersion) {
+            return;
+        }
+        boolean changed = false;
+        // Reinterpreted twice: first as a per-40-tick ascent allowance that could
+        // never fire, then a net-altitude cap of 3.0 which real elytra play was
+        // measured to exceed (rocket-boosted and momentum pull-ups both pass it).
+        // 3.0 was a false-positive threshold, so it is raised to 6.0.
+        if (config.getDouble("elytra.noRocketMaxAscent", 0.0) == 3.0) {
+            config.set("elytra.noRocketMaxAscent", 6.0);
+            changed = true;
+        }
+        if (config.getDouble("limits.groundWalking", 0.0) == 0.49) {
+            config.set("limits.groundWalking", AntiFlyConstants.DEFAULT_GROUND_WALK_MAX);
+            changed = true;
+        }
+        if (config.getDouble("antiFly.maxAirVertical", 0.0) == 0.756) {
+            config.set("antiFly.maxAirVertical", AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX);
+            changed = true;
+        }
+        if (config.getDouble("elytra.noRocketSustainableHorizontal", 0.0) == 2.6) {
+            config.set("elytra.noRocketSustainableHorizontal", 6.0);
+            changed = true;
+        }
+        if (config.getDouble("elytra.maxNoRocketUp", 0.0) == 0.55) {
+            config.set("elytra.maxNoRocketUp", 4.0);
+            changed = true;
+        }
+        if (config.getDouble("hungerMode.hungerPerSecondAtMaxSpeed", 0.0) == 20.0) {
+            config.set("hungerMode.hungerPerSecondAtMaxSpeed", 10.0);
+            changed = true;
+        }
+        config.set("config-version", currentVersion);
+        if (changed) {
+            getLogger().info("Migrated config.yml to version " + currentVersion
+                + " (raised defaults that flagged vanilla behaviour).");
+        }
     }
 
     private void loadConfigValues() {
@@ -275,9 +363,16 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("antiFly.setbackCooldownMs", 500L);
         config.addDefault("antiFly.noFallDetectionEnabled", true);
         config.addDefault("antiFly.sustainedAirTicksLimit", 150);
+        config.addDefault("antiFly.impulseGraceTicks", AntiFlyConstants.IMPULSE_GRACE_TICKS);
+        config.addDefault("antiFly.groundSpoofTicksLimit", AntiFlyConstants.GROUND_SPOOF_TICKS);
+        config.addDefault("antiFly.vehicleFallMinDescent", AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT);
+        config.addDefault("antiFly.vehicleFallMaxHorizontal", AntiFlyConstants.VEHICLE_FALL_MAX_HORIZONTAL);
+        config.addDefault("antiFly.vehicleFallTicksMax", AntiFlyConstants.VEHICLE_FALL_TICKS_MAX);
+        config.addDefault("antiFly.repeatOffenderAlertCount", 10);
         config.addDefault("antiFly.alertMode", "both");
 
         config.addDefault("hungerMode.enabled", false);
+        config.addDefault("voidAccess", true);
         config.addDefault("hungerMode.maxBlocksPerSecond", 200.0);
         config.addDefault("hungerMode.hungerPerSecondAtMaxSpeed", 10.0);
         config.addDefault("hungerMode.rocketGraceTicks", 80);
@@ -303,7 +398,10 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("elytra.noRocketWindowTicks", 40);
         config.addDefault("elytra.noRocketMinDescent", 0.60);
         config.addDefault("elytra.noRocketSustainableHorizontal", 6.0);
-        config.addDefault("elytra.noRocketMaxAscent", 4.0);
+        config.addDefault("elytra.noRocketMaxAscent", 6.0);
+        config.addDefault("elytra.sustainedClimbTicksLimit", AntiFlyConstants.ELYTRA_SUSTAINED_CLIMB_TICKS);
+        config.addDefault("elytra.verifierMode", "enforce");
+        config.addDefault("elytra.glideSuppressionTicks", AntiFlyConstants.ELYTRA_GLIDE_SUPPRESSION_TICKS);
         config.addDefault("elytra.maxNoRocketUp", 4.0);
         config.addDefault("elytra.maxRocketHorizontal", 6.0);
         config.addDefault("elytra.maxRocketUp", 4.0);
@@ -325,6 +423,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("disabledWorlds", java.util.List.of());
         config.addDefault("exempt", java.util.List.of());
         config.options().copyDefaults(true);
+        migrateLegacyDefaults(config);
         saveConfig();
 
         antiFlyEnabled = config.getBoolean("enabled", true);
@@ -356,9 +455,17 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.setbackCooldownMs = config.getLong("antiFly.setbackCooldownMs", 500L);
         settings.noFallDetectionEnabled = config.getBoolean("antiFly.noFallDetectionEnabled", true);
         settings.sustainedAirTicksLimit = Math.max(1, config.getInt("antiFly.sustainedAirTicksLimit", 150));
+        settings.sustainedAirMinDescent = Math.max(0, config.getDouble("antiFly.sustainedAirMinDescent", 40.0));
+        settings.impulseGraceTicks = Math.max(0, config.getInt("antiFly.impulseGraceTicks", AntiFlyConstants.IMPULSE_GRACE_TICKS));
+        settings.groundSpoofTicksLimit = Math.max(1, config.getInt("antiFly.groundSpoofTicksLimit", AntiFlyConstants.GROUND_SPOOF_TICKS));
+        settings.vehicleFallMinDescent = config.getDouble("antiFly.vehicleFallMinDescent", AntiFlyConstants.VEHICLE_FALL_MIN_DESCENT);
+        settings.vehicleFallMaxHorizontal = config.getDouble("antiFly.vehicleFallMaxHorizontal", AntiFlyConstants.VEHICLE_FALL_MAX_HORIZONTAL);
+        settings.vehicleFallTicksMax = Math.max(1, config.getInt("antiFly.vehicleFallTicksMax", AntiFlyConstants.VEHICLE_FALL_TICKS_MAX));
+        settings.repeatOffenderAlertCount = Math.max(1, config.getInt("antiFly.repeatOffenderAlertCount", 10));
         settings.alertMode = AlertMode.fromString(config.getString("antiFly.alertMode", "both"), AlertMode.BOTH);
 
         settings.hungerModeEnabled = config.getBoolean("hungerMode.enabled", false);
+        settings.voidAccess = config.getBoolean("voidAccess", true);
         settings.hungerModeMaxBlocksPerSecond = Math.max(1.0, config.getDouble("hungerMode.maxBlocksPerSecond", 200.0));
         settings.hungerModeHungerPerSecondAtMaxSpeed = Math.max(0.0, config.getDouble("hungerMode.hungerPerSecondAtMaxSpeed", 10.0));
         settings.hungerModeRocketGraceTicks = Math.max(0, config.getInt("hungerMode.rocketGraceTicks", 80));
@@ -384,7 +491,23 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.elytraNoRocketWindowTicks = config.getInt("elytra.noRocketWindowTicks", 40);
         settings.elytraNoRocketMinDescent = config.getDouble("elytra.noRocketMinDescent", 0.60);
         settings.elytraNoRocketSustainableHorizontal = config.getDouble("elytra.noRocketSustainableHorizontal", 6.0);
-        settings.elytraNoRocketMaxAscent = config.getDouble("elytra.noRocketMaxAscent", 4.0);
+        settings.elytraNoRocketMaxAscent = config.getDouble("elytra.noRocketMaxAscent", 6.0);
+        settings.elytraSustainedClimbTicksLimit = Math.max(1, config.getInt("elytra.sustainedClimbTicksLimit", AntiFlyConstants.ELYTRA_SUSTAINED_CLIMB_TICKS));
+        settings.elytraVerifierMode = config.getString("elytra.verifierMode", "enforce");
+        var verifier = settings.elytraVerifierTuning;
+        verifier.gravity = Math.max(0, config.getDouble("elytra.verifier.gravity", 0.08));
+        verifier.residualAllowance = Math.max(0, config.getDouble("elytra.verifier.residualAllowance", 0.20));
+        verifier.residualPerSpeed = Math.max(0, config.getDouble("elytra.verifier.residualPerSpeed", 0.02));
+        verifier.energyAllowance = Math.max(0, config.getDouble("elytra.verifier.energyAllowance", 0.04));
+        verifier.steadySpeedDeviation = Math.max(0.0001, config.getDouble("elytra.verifier.steadySpeedDeviation", 0.008));
+        verifier.minimumSteadySpeed = Math.max(0, config.getDouble("elytra.verifier.minimumSteadySpeed", 0.45));
+        verifier.steadyWindowTicks = Math.max(2, config.getInt("elytra.verifier.steadyWindowTicks", 14));
+        verifier.evidenceWindowTicks = Math.max(2, config.getInt("elytra.verifier.evidenceWindowTicks", 20));
+        verifier.minimumEvidenceTicks = Math.max(1, config.getInt("elytra.verifier.minimumEvidenceTicks", 8));
+        verifier.minimumChannels = Math.max(1, config.getInt("elytra.verifier.minimumChannels", 2));
+        verifier.confidenceThreshold = Math.max(0, config.getDouble("elytra.verifier.confidenceThreshold", 0.45));
+        verifier.sharpTurnDegrees = Math.max(0, config.getDouble("elytra.verifier.sharpTurnDegrees", 50.0));
+        settings.elytraGlideSuppressionTicks = Math.max(0, config.getInt("elytra.glideSuppressionTicks", AntiFlyConstants.ELYTRA_GLIDE_SUPPRESSION_TICKS));
         settings.elytraMaxNoRocketUp = config.getDouble("elytra.maxNoRocketUp", 4.0);
         settings.elytraMaxRocketHorizontal = config.getDouble("elytra.maxRocketHorizontal", 6.0);
         settings.elytraMaxRocketUp = config.getDouble("elytra.maxRocketUp", 4.0);
@@ -431,6 +554,13 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("antiFly.hoverBufferLimit", settings.hoverBufferLimit);
         config.set("antiFly.noFallDetectionEnabled", settings.noFallDetectionEnabled);
         config.set("antiFly.sustainedAirTicksLimit", settings.sustainedAirTicksLimit);
+        config.set("antiFly.sustainedAirMinDescent", settings.sustainedAirMinDescent);
+        config.set("antiFly.impulseGraceTicks", settings.impulseGraceTicks);
+        config.set("antiFly.groundSpoofTicksLimit", settings.groundSpoofTicksLimit);
+        config.set("antiFly.vehicleFallMinDescent", settings.vehicleFallMinDescent);
+        config.set("antiFly.vehicleFallMaxHorizontal", settings.vehicleFallMaxHorizontal);
+        config.set("antiFly.vehicleFallTicksMax", settings.vehicleFallTicksMax);
+        config.set("antiFly.repeatOffenderAlertCount", settings.repeatOffenderAlertCount);
         config.set("antiFly.airNonFallTicksLimit", settings.airNonFallTicksLimit);
         config.set("antiFly.antiKickWindowTicks", settings.antiKickWindowTicks);
         config.set("antiFly.antiKickMinDescent", settings.antiKickMinDescent);
@@ -440,6 +570,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("antiFly.setbackCooldownMs", settings.setbackCooldownMs);
 
         config.set("hungerMode.enabled", settings.hungerModeEnabled);
+        config.set("voidAccess", settings.voidAccess);
         config.set("hungerMode.maxBlocksPerSecond", settings.hungerModeMaxBlocksPerSecond);
         config.set("hungerMode.hungerPerSecondAtMaxSpeed", settings.hungerModeHungerPerSecondAtMaxSpeed);
         config.set("hungerMode.rocketGraceTicks", settings.hungerModeRocketGraceTicks);
@@ -473,6 +604,22 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("elytra.maxRocketUp", settings.elytraMaxRocketUp);
         config.set("elytra.noRocketSustainableHorizontal", settings.elytraNoRocketSustainableHorizontal);
         config.set("elytra.noRocketMaxAscent", settings.elytraNoRocketMaxAscent);
+        config.set("elytra.sustainedClimbTicksLimit", settings.elytraSustainedClimbTicksLimit);
+        config.set("elytra.verifierMode", settings.elytraVerifierMode);
+        var verifier = settings.elytraVerifierTuning;
+        config.set("elytra.verifier.gravity", verifier.gravity);
+        config.set("elytra.verifier.residualAllowance", verifier.residualAllowance);
+        config.set("elytra.verifier.residualPerSpeed", verifier.residualPerSpeed);
+        config.set("elytra.verifier.energyAllowance", verifier.energyAllowance);
+        config.set("elytra.verifier.steadySpeedDeviation", verifier.steadySpeedDeviation);
+        config.set("elytra.verifier.minimumSteadySpeed", verifier.minimumSteadySpeed);
+        config.set("elytra.verifier.steadyWindowTicks", verifier.steadyWindowTicks);
+        config.set("elytra.verifier.evidenceWindowTicks", verifier.evidenceWindowTicks);
+        config.set("elytra.verifier.minimumEvidenceTicks", verifier.minimumEvidenceTicks);
+        config.set("elytra.verifier.minimumChannels", verifier.minimumChannels);
+        config.set("elytra.verifier.confidenceThreshold", verifier.confidenceThreshold);
+        config.set("elytra.verifier.sharpTurnDegrees", verifier.sharpTurnDegrees);
+        config.set("elytra.glideSuppressionTicks", settings.elytraGlideSuppressionTicks);
         config.set("elytra.maxNoRocketUp", settings.elytraMaxNoRocketUp);
         config.set("elytra.requiredDescentForPullup", settings.elytraRequiredDescentForPullup);
         config.set("disabledWorlds", settings.disabledWorlds.stream().sorted().toList());
@@ -515,6 +662,13 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "hover_buffer_limit" -> "hoverBufferLimit";
             case "no_fall_detection_enabled" -> "noFallDetectionEnabled";
             case "sustained_air_ticks_limit" -> "sustainedAirTicksLimit";
+            case "sustained_air_min_descent" -> "sustainedAirMinDescent";
+            case "impulse_grace_ticks" -> "impulseGraceTicks";
+            case "ground_spoof_ticks_limit" -> "groundSpoofTicksLimit";
+            case "vehicle_fall_min_descent" -> "vehicleFallMinDescent";
+            case "vehicle_fall_max_horizontal" -> "vehicleFallMaxHorizontal";
+            case "vehicle_fall_ticks_max" -> "vehicleFallTicksMax";
+            case "repeat_offender_alert_count" -> "repeatOffenderAlertCount";
             case "air_non_fall_ticks_limit" -> "airNonFallTicksLimit";
             case "anti_kick_window_ticks" -> "antiKickWindowTicks";
             case "anti_kick_min_descent" -> "antiKickMinDescent";
@@ -528,6 +682,9 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "elytra_max_rocket_up" -> "elytraMaxRocketUp";
             case "elytra_no_rocket_sustainable_horizontal" -> "elytraNoRocketSustainableHorizontal";
             case "elytra_no_rocket_max_ascent" -> "elytraNoRocketMaxAscent";
+            case "elytra_sustained_climb_ticks_limit" -> "elytraSustainedClimbTicksLimit";
+            case "elytra_verifier_mode" -> "elytraVerifierMode";
+            case "elytra_glide_suppression_ticks" -> "elytraGlideSuppressionTicks";
             case "elytra_max_no_rocket_up" -> "elytraMaxNoRocketUp";
             case "elytra_required_descent_for_pullup" -> "elytraRequiredDescentForPullup";
             case "hunger_mode_max_blocks_per_second", "hungerModeMaxBps" -> "hungerModeMaxBlocksPerSecond";
@@ -607,9 +764,17 @@ public final class AntiFlyPlugin extends JavaPlugin {
         long setbackCooldownMs;
         boolean noFallDetectionEnabled;
         int sustainedAirTicksLimit;
+        double sustainedAirMinDescent;
+        int impulseGraceTicks;
+        int groundSpoofTicksLimit;
+        double vehicleFallMinDescent;
+        double vehicleFallMaxHorizontal;
+        int vehicleFallTicksMax;
+        int repeatOffenderAlertCount;
         AlertMode alertMode;
 
         boolean hungerModeEnabled;
+        boolean voidAccess;
         double hungerModeMaxBlocksPerSecond;
         double hungerModeHungerPerSecondAtMaxSpeed;
         int hungerModeRocketGraceTicks;
@@ -636,6 +801,10 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double elytraNoRocketMinDescent;
         double elytraNoRocketSustainableHorizontal;
         double elytraNoRocketMaxAscent;
+        int elytraSustainedClimbTicksLimit;
+        String elytraVerifierMode;
+        final com.antifly.common.ElytraPhysics.Tuning elytraVerifierTuning = new com.antifly.common.ElytraPhysics.Tuning();
+        int elytraGlideSuppressionTicks;
         double elytraMaxNoRocketUp;
         double elytraMaxRocketHorizontal;
         double elytraMaxRocketUp;
@@ -681,6 +850,13 @@ public final class AntiFlyPlugin extends JavaPlugin {
     static final class PlayerState {
         org.bukkit.Location lastGround;
         org.bukkit.Location lastSupport;
+        org.bukkit.Location lastVoidSafe;
+        boolean voidRedirectedMove;
+        org.bukkit.Location lastHungerElytraPhysicsSample;
+        long lastHungerElytraPhysicsTick = Long.MIN_VALUE;
+        boolean hungerElytraExploit;
+        final com.antifly.common.ElytraPhysics hungerElytraVerifier = new com.antifly.common.ElytraPhysics();
+        final com.antifly.common.ElytraPhysics.Input hungerElytraInput = new com.antifly.common.ElytraPhysics.Input();
         org.bukkit.Location lastPos;
 
         boolean serverAllowedFlight;
@@ -690,6 +866,14 @@ public final class AntiFlyPlugin extends JavaPlugin {
         boolean lastServerOnGround;
         boolean lastClientOnGround;
         int groundSpoofTicks;
+
+        org.bukkit.util.Vector lastVelocity;
+        int impulseGraceTicks;
+        int failCount;
+        long lastFailMs;
+        long lastRepeatAlertMs;
+        int vehicleFallTicks;
+        double vehicleFallHorizontalDistance;
 
         double airHorizontalBuffer;
         double airVerticalBuffer;
@@ -726,12 +910,22 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double flightAirborneSeconds;
         double lastFlightDamageAtSeconds;
         double hungerDrainSeconds;
+        double voidDamageSeconds;
+        long lastVoidDamageMs;
         double glideNoRocketSeconds;
         int teleportGraceTicks;
         int sustainedAirTicks;
+        double sustainedAirStartY;
         double glideWindowHorizontal;
         double glideWindowDescent;
-        double glideWindowAscent;
+        double elytraNetAltitude;
+        int glideSustainedClimbTicks;
+        int glideSuppressTicks;
+        final com.antifly.common.ElytraPhysics elytraVerifier = new com.antifly.common.ElytraPhysics();
+        final com.antifly.common.ElytraPhysics.Input elytraInput = new com.antifly.common.ElytraPhysics.Input();
+        org.bukkit.Location lastElytraSample;
+        long lastElytraSampleTick = Long.MIN_VALUE;
+        long lastExternalImpulseTick = Long.MIN_VALUE;
         double lastGlideHorizontal;
         double peakGlideHorizontal;
         double elytraMovementBuffer;

@@ -1,12 +1,15 @@
 name: AntiFly
 version: ${version}
+description: Lightweight flight-control checks for Bukkit family servers.
+author: CevAPI
+website: https://cevapi.dev
 main: com.antifly.paper.AntiFlyPlugin
 api-version: '1.21'
 folia-supported: true
 commands:
   antifly:
     description: AntiFly administration
-    usage: /antifly <help|enable|disable|status|alerts|debug|exempt|unexempt|set|reset>
+    usage: /antifly <help|enable|disable|hungermode|voidaccess|status|alerts|debug|exempt|unexempt|set|reset>
     permission: antifly.admin
 permissions:
   antifly.admin:
