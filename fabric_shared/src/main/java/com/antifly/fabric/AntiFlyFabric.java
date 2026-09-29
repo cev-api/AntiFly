@@ -66,6 +66,9 @@ public final class AntiFlyFabric implements ModInitializer {
     public static final String MOD_ID = "antifly";
     private static final long LOG_COOLDOWN_MS = 500;
     private static final double ELYTRA_HOVER_MAX_BPS = 2.0;
+    // Vanilla sprinting is well below this even with ordinary terrain effects.
+    // Charge clearly hacked ground speed while leaving normal running free.
+    private static final double HUNGER_GROUND_SPEED_THRESHOLD_BPS = 12.0;
     private static final double SUPPORT_ENTITY_DEPTH = 0.5;
     private static final double SUPPORT_ENTITY_SLACK = 0.05;
     private static final Logger LOGGER = LoggerFactory.getLogger("AntiFly");
@@ -366,6 +369,14 @@ public final class AntiFlyFabric implements ModInitializer {
         boolean unsupported = !hasGroundSupport(player) && !isInFluid(player) && !vehicleSupported;
 
         boolean gliding = player.isFallFlying();
+        boolean unsupportedBoat = player.isPassenger() && player.getVehicle() instanceof Boat boat
+            && !isInFluid(player) && !isBoatInFluid(boat) && !hasBoatGroundSupport(boat);
+        unsupported |= unsupportedBoat;
+        MobEffectInstance speedEffect = player.getEffect(MobEffects.SPEED);
+        int speedAmplifier = speedEffect == null ? -1 : speedEffect.getAmplifier();
+        double legitimateGroundSpeed = HUNGER_GROUND_SPEED_THRESHOLD_BPS * (1.0 + 0.2 * (speedAmplifier + 1));
+        boolean groundSpeedExploit = !unsupported && !player.isPassenger() && !gliding
+            && rawSpeedBps > legitimateGroundSpeed;
         boolean recentRocket = gliding && state.rocketGraceTicks > 0;
 
         // Elytra exploit detection: abnormal speed (> threshold), hover-hack
@@ -428,7 +439,7 @@ public final class AntiFlyFabric implements ModInitializer {
             // Normal (non-elytra) movement: speed-based drain with the
             // airborne minimum floor for unsupported players.
             double speedBlocksPerSecond = rawSpeedBps;
-            if (unsupported) {
+            if (unsupported || groundSpeedExploit) {
                 speedBlocksPerSecond = Math.max(speedBlocksPerSecond, config.hungerModeAirborneMinimumBlocksPerSecond);
             }
             double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / config.hungerModeMaxBlocksPerSecond);
@@ -444,7 +455,7 @@ public final class AntiFlyFabric implements ModInitializer {
         }
         // Hunger Mode penalizes unsupported flight only. Once support returns,
         // immediately discard any airborne debt so it cannot drain on landing.
-        if (!unsupported) {
+        if (!unsupported && !groundSpeedExploit) {
             hungerLoss = 0.0;
             state.hungerDebt = 0.0;
         }

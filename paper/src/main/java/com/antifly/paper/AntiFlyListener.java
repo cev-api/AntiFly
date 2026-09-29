@@ -42,6 +42,9 @@ public final class AntiFlyListener implements Listener {
     private static final double NO_ROCKET_UP_CONTROL_MIN_DELTA_Y = 1.0;
     private static final int FLUID_EXIT_UP_GRACE_TICKS = 12;
     private static final double ELYTRA_HOVER_MAX_BPS = 2.0;
+    // Vanilla sprinting is well below this even with ordinary terrain effects.
+    // Charge clearly hacked ground speed while leaving normal running free.
+    private static final double HUNGER_GROUND_SPEED_THRESHOLD_BPS = 12.0;
     private static final double SUPPORT_ENTITY_DEPTH = 0.5;
     private static final double SUPPORT_ENTITY_SLACK = 0.05;
     private static final EnumSet<Material> COLLISION_SUPPORT = EnumSet.of(
@@ -175,8 +178,10 @@ public final class AntiFlyListener implements Listener {
             // remains responsible for stationary hovering.
             boolean vehicleSupported = inVehicle && (inBoatWater || boatOnSupport
                 || (!(player.getVehicle() instanceof Boat) && player.getVehicle().isOnGround()));
-            boolean movementUnsupported = !serverOnGround && !isSupportedByCollisionLikeBlock(to)
-                && !inFluid && !vehicleSupported;
+            boolean unsupportedBoat = inVehicle && player.getVehicle() instanceof Boat
+                && !inFluid && !boatOnSupport;
+            boolean movementUnsupported = (!serverOnGround && !isSupportedByCollisionLikeBlock(to)
+                && !inFluid && !vehicleSupported) || unsupportedBoat;
             if (player.isGliding() && !isExempt(player)) {
                 long tick = to.getWorld().getGameTime();
                 if (tick != state.lastHungerElytraPhysicsTick) {
@@ -641,6 +646,9 @@ public final class AntiFlyListener implements Listener {
         boolean unsupported = !hasGroundSupport(player, pos)
             && !isSupportedByCollisionLikeBlock(pos)
             && !inFluid && !vehicleSupported;
+        boolean unsupportedBoat = player.isInsideVehicle() && player.getVehicle() instanceof Boat boat
+            && !inFluid && !isBoatInFluid(boat) && !hasBoatGroundSupport(boat);
+        unsupported |= unsupportedBoat;
         boolean gliding = player.isGliding();
 
         // Consume server-accepted movement accumulated by PlayerMoveEvent. This
@@ -662,9 +670,14 @@ public final class AntiFlyListener implements Listener {
         // horizontal rate, never compounded with a vertical component.
         double sampledSpeedBps = horizontalDistance(prev, pos) / elapsedSeconds;
         double rawSpeedBps = Math.max(sampledSpeedBps, acceptedHorizontal / elapsedSeconds);
+        PotionEffect speedEffect = player.getPotionEffect(PotionEffectType.SPEED);
+        int speedAmplifier = speedEffect == null ? -1 : speedEffect.getAmplifier();
+        double legitimateGroundSpeed = HUNGER_GROUND_SPEED_THRESHOLD_BPS * (1.0 + 0.2 * (speedAmplifier + 1));
+        boolean groundSpeedExploit = !unsupported && !player.isInsideVehicle() && !gliding
+            && rawSpeedBps > legitimateGroundSpeed;
         // A supported sample (or landing move) wins over earlier airborne
         // movement in the same interval: landing cancels pending debt.
-        if (!unsupported || acceptedSupported) {
+        if ((!unsupported || acceptedSupported) && !groundSpeedExploit) {
             unsupported = false;
             rawSpeedBps = 0.0;
             state.hungerDebt = 0.0;
@@ -725,7 +738,7 @@ public final class AntiFlyListener implements Listener {
             // Normal (non-elytra) movement: speed-based drain with the airborne
             // minimum floor for unsupported players.
             double speedBlocksPerSecond = rawSpeedBps;
-            if (unsupported) {
+            if (unsupported || groundSpeedExploit) {
                 speedBlocksPerSecond = Math.max(speedBlocksPerSecond, settings.hungerModeAirborneMinimumBlocksPerSecond);
             }
             double normalizedSpeed = Math.min(1.0, speedBlocksPerSecond / settings.hungerModeMaxBlocksPerSecond);
