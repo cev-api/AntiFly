@@ -166,6 +166,15 @@ public final class AntiFlyFabric implements ModInitializer {
             }
         }
     }
+    private void sendOverview(net.minecraft.commands.CommandSourceStack source) {
+        source.sendSuccess(() -> header("AntiFly Overview"), false);
+        source.sendSuccess(() -> statusLine("Protection", config.enabled ? "ENABLED" : "DISABLED", config.enabled), false);
+        source.sendSuccess(() -> statusLine("Hunger mode", config.hungerModeEnabled ? "ON (hunger penalties active)" : "OFF (movement checks active)", !config.hungerModeEnabled), false);
+        source.sendSuccess(() -> statusLine("Void access", config.voidAccess ? "ALLOWED" : "BLOCKED", config.voidAccess), false);
+        source.sendSuccess(() -> statusLine("Elytra checks", config.elytraChecksEnabled ? "ON" : "OFF", config.elytraChecksEnabled), false);
+        source.sendSuccess(() -> statusLine("Alerts", config.alertMode.toString(), true), false);
+        source.sendSuccess(() -> Component.literal("Try: /antifly status, /antifly help, /antifly hungermode <on|off>, /antifly voidaccess <on|off>, /antifly set").withStyle(ChatFormatting.YELLOW), false);
+    }
     private final AttemptTracker attemptTracker = new AttemptTracker();
     private final Map<UUID, PlayerState> states = new ConcurrentHashMap<>();
     private final Set<UUID> exempt = ConcurrentHashMap.newKeySet();
@@ -202,6 +211,10 @@ public final class AntiFlyFabric implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(Commands.literal("antifly")
                 .requires(source -> isOperator(source) && source.permissions().hasPermission(Permissions.COMMANDS_ADMIN))
+                .executes(ctx -> {
+                    sendOverview(ctx.getSource());
+                    return 1;
+                })
                 .then(Commands.literal("help").executes(ctx -> {
                     sendHelp(ctx.getSource());
                     return 1;

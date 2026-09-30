@@ -51,10 +51,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 0) {
-            sender.sendMessage(ChatColor.GOLD + "AntiFly Commands");
-            sender.sendMessage(ChatColor.YELLOW + "  /antifly help");
-            sender.sendMessage(ChatColor.YELLOW + "  /antifly status");
-            sender.sendMessage(ChatColor.YELLOW + "  /antifly set <key> <value>");
+            sendOverview(sender);
             return true;
         }
 
@@ -143,6 +140,10 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sendStatusSection(sender, "Hunger Mode", s, "hungerModeMaxBlocksPerSecond", "hungerModeHungerPerSecondAtMaxSpeed", "hungerModeRocketGraceTicks", "hungerModeAirborneMinimumBlocksPerSecond", "hungerModeFlightDamageEnabled", "hungerModeFlightDamageAfterSeconds", "hungerModeFlightDamageAfterHungerSeconds", "hungerModeFlightDamagePerSecond", "hungerModeElytraFoodEnabled", "hungerModeElytraFoodMultiplier", "hungerModeElytraSpeedThresholdBps", "hungerModeElytraNoRocketAfterSeconds", "hungerModeElytraDamageEnabled", "hungerModeRocketResetsDamage");
                 sendStatusSection(sender, "Elytra", s, "elytraEnabled", "elytraBoostGraceTicks", "elytraToggleGraceTicks", "elytraLandingGraceTicks", "elytraStallHorizontalMax", "elytraStallVerticalMax", "elytraStallTicks", "elytraNoRocketWindowTicks", "elytraNoRocketMinDescent", "elytraNoRocketSustainableHorizontal", "elytraNoRocketMaxAscent", "elytraMaxNoRocketUp", "elytraMaxRocketHorizontal", "elytraMaxRocketUp", "elytraRequiredDescentForPullup", "elytraMovementBufferLimit", "elytraDurabilityCheckEnabled", "elytraDurabilityBaseWindowTicks", "elytraDurabilityUnbreakingMultiplier", "elytraDurabilitySuspicionLimit", "elytraRequireMovementSuspicionForDurabilityPunish");
                 sender.sendMessage(ChatColor.GRAY + "Alert mode: " + ChatColor.WHITE + s.alertMode.name().toLowerCase(Locale.ROOT));
+                sender.sendMessage(ChatColor.AQUA + "All current tuning values");
+                for (String key : SET_KEYS) {
+                    sender.sendMessage(ChatColor.GRAY + "  " + key + "=" + ChatColor.WHITE + formatSettingValue(s, key));
+                }
                 plugin.checkModrinthVersion(sender);
                 return true;
             }
@@ -408,6 +409,22 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(ChatColor.GRAY + "  " + key + "=" + ChatColor.WHITE + formatSettingValue(settings, key));
         }
     }
+
+    private void sendOverview(CommandSender sender) {
+        AntiFlyPlugin.Settings s = plugin.getSettings();
+        sender.sendMessage(ChatColor.GOLD + "AntiFly Overview");
+        sender.sendMessage(ChatColor.GRAY + "Protection: "
+            + (plugin.isAntiFlyEnabled() ? ChatColor.GREEN + "ENABLED" : ChatColor.RED + "DISABLED"));
+        sender.sendMessage(ChatColor.GRAY + "Hunger mode: "
+            + (plugin.isHungerModeEnabled() ? ChatColor.YELLOW + "ON (hunger penalties active)" : ChatColor.GREEN + "OFF (movement checks active)"));
+        sender.sendMessage(ChatColor.GRAY + "Void access: "
+            + (s.voidAccess ? ChatColor.GREEN + "ALLOWED" : ChatColor.RED + "BLOCKED"));
+        sender.sendMessage(ChatColor.GRAY + "Elytra checks: "
+            + (s.elytraEnabled ? ChatColor.GREEN + "ON" : ChatColor.RED + "OFF"));
+        sender.sendMessage(ChatColor.GRAY + "Alerts: " + ChatColor.WHITE + s.alertMode.name().toLowerCase(Locale.ROOT));
+        sender.sendMessage(ChatColor.YELLOW + "Try: /antifly status, /antifly help, /antifly hungermode <on|off>, /antifly voidaccess <on|off>, /antifly set");
+    }
+
     private String formatSettingValue(AntiFlyPlugin.Settings s, String key) {
         return switch (key) {
             case "groundWalkMax" -> String.valueOf(s.groundWalkMax);
