@@ -148,23 +148,7 @@ public final class AntiFlyFabric implements ModInitializer {
         source.sendSuccess(() -> statusLine("Void access", config.voidAccess ? "ON" : "OFF", config.voidAccess), false);
         source.sendSuccess(() -> statusLine("Alerts", config.alertMode.toString(), true), false);
         source.sendSuccess(() -> statusLine("Disabled worlds", config.disabledWorlds.isEmpty() ? "none" : String.join(", ", config.disabledWorlds), true), false);
-        source.sendSuccess(() -> Component.literal("Movement limits").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
-        source.sendSuccess(() -> statusLine("Ground", "walk=" + config.groundWalkMax + " | mounted=" + config.groundMountedMax, true), false);
-        source.sendSuccess(() -> statusLine("Water", "horizontal=" + config.waterMax + " | vertical=" + config.waterVerticalMax, true), false);
-        source.sendSuccess(() -> statusLine("Boat", "horizontal=" + config.boatMaxHorizontal, true), false);
-        source.sendSuccess(() -> statusLine("Air", "horizontal=" + config.airMax + " | vertical=" + config.airVerticalMax, true), false);
-        source.sendSuccess(() -> Component.literal("Elytra").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
-        source.sendSuccess(() -> statusLine("Enabled", config.elytraChecksEnabled ? "YES" : "NO", config.elytraChecksEnabled), false);
-        source.sendSuccess(() -> statusLine("Boost grace", String.valueOf(config.elytraBoostGraceTicks), true), false);
-        source.sendSuccess(() -> statusLine("Stall", "ticks=" + config.elytraStallTicks + " | buffer=" + config.elytraMovementBufferLimit, true), false);
-        source.sendSuccess(() -> Component.literal("Settable values").withStyle(style -> style.withColor(ChatFormatting.AQUA).withBold(true)), false);
-        for (String key : SET_KEYS) {
-            String value = formatSettingValue(key);
-            if (value != null) {
-                source.sendSuccess(() -> Component.literal("  " + key + " = ").withStyle(ChatFormatting.GRAY)
-                    .append(Component.literal(value).withStyle(ChatFormatting.WHITE)), false);
-            }
-        }
+        source.sendSuccess(() -> statusLine("Tuning values", "/antifly set", true), false);
     }
     private void sendOverview(net.minecraft.commands.CommandSourceStack source) {
         source.sendSuccess(() -> header("AntiFly Overview"), false);

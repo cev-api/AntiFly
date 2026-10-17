@@ -133,17 +133,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.GRAY + "Void access: " + (s.voidAccess ? "ON" : "OFF"));
                 sender.sendMessage(ChatColor.GRAY + "Disabled worlds: " + ChatColor.WHITE
                     + (s.disabledWorlds.isEmpty() ? "(none)" : String.join(", ", s.disabledWorlds)));
-
-                sendStatusSection(sender, "Ground / Fluid", s, "groundWalkMax", "groundMountedMax", "waterMax", "waterVerticalMax", "boatMaxHorizontal");
-                sendStatusSection(sender, "Air", s, "airGraceTicks", "maxAirHorizontal", "maxAirVertical", "hoverStartTicks", "hoverTicksLimit", "hoverDeltaY", "hoverHorizontal", "airNonFallTicksLimit", "antiKickWindowTicks", "antiKickMinDescent", "vehicleAirGraceTicks", "boatAirGraceTicks", "horseAirGraceTicks");
-                sendStatusSection(sender, "Buffers / Setback", s, "horizontalBufferLimit", "verticalBufferLimit", "hoverBufferLimit", "bufferDecay", "setbackCooldownMs", "noFallDetectionEnabled", "sustainedAirTicksLimit", "impulseGraceTicks", "groundSpoofTicksLimit", "repeatOffenderAlertCount", "vehicleFallMinDescent", "vehicleFallMaxHorizontal", "vehicleFallTicksMax");
-                sendStatusSection(sender, "Hunger Mode", s, "hungerModeMaxBlocksPerSecond", "hungerModeHungerPerSecondAtMaxSpeed", "hungerModeRocketGraceTicks", "hungerModeAirborneMinimumBlocksPerSecond", "hungerModeFlightDamageEnabled", "hungerModeFlightDamageAfterSeconds", "hungerModeFlightDamageAfterHungerSeconds", "hungerModeFlightDamagePerSecond", "hungerModeElytraFoodEnabled", "hungerModeElytraFoodMultiplier", "hungerModeElytraSpeedThresholdBps", "hungerModeElytraNoRocketAfterSeconds", "hungerModeElytraDamageEnabled", "hungerModeRocketResetsDamage");
-                sendStatusSection(sender, "Elytra", s, "elytraEnabled", "elytraBoostGraceTicks", "elytraToggleGraceTicks", "elytraLandingGraceTicks", "elytraStallHorizontalMax", "elytraStallVerticalMax", "elytraStallTicks", "elytraNoRocketWindowTicks", "elytraNoRocketMinDescent", "elytraNoRocketSustainableHorizontal", "elytraNoRocketMaxAscent", "elytraMaxNoRocketUp", "elytraMaxRocketHorizontal", "elytraMaxRocketUp", "elytraRequiredDescentForPullup", "elytraMovementBufferLimit", "elytraDurabilityCheckEnabled", "elytraDurabilityBaseWindowTicks", "elytraDurabilityUnbreakingMultiplier", "elytraDurabilitySuspicionLimit", "elytraRequireMovementSuspicionForDurabilityPunish");
                 sender.sendMessage(ChatColor.GRAY + "Alert mode: " + ChatColor.WHITE + s.alertMode.name().toLowerCase(Locale.ROOT));
-                sender.sendMessage(ChatColor.AQUA + "All current tuning values");
-                for (String key : SET_KEYS) {
-                    sender.sendMessage(ChatColor.GRAY + "  " + key + "=" + ChatColor.WHITE + formatSettingValue(s, key));
-                }
+                sender.sendMessage(ChatColor.GRAY + "Tuning values: " + ChatColor.WHITE + "/antifly set");
                 plugin.checkModrinthVersion(sender);
                 return true;
             }
@@ -401,13 +392,6 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             }
         }
         return matchedKey != null ? matchedKey : AntiFlyPlugin.normalizeSettingKey(input);
-    }
-
-    private void sendStatusSection(CommandSender sender, String title, AntiFlyPlugin.Settings settings, String... keys) {
-        sender.sendMessage(ChatColor.AQUA + title);
-        for (String key : keys) {
-            sender.sendMessage(ChatColor.GRAY + "  " + key + "=" + ChatColor.WHITE + formatSettingValue(settings, key));
-        }
     }
 
     private void sendOverview(CommandSender sender) {

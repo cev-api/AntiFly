@@ -45,7 +45,7 @@ The command set is identical on Paper and Fabric. On Paper it requires op or `an
 | Command | Effect |
 | --- | --- |
 | `/antifly enable\|disable` | Turn the checks on or off globally |
-| `/antifly status` | Show current state, and check Modrinth for a newer release |
+| `/antifly status` | Show current state and alert mode, and check Modrinth for a newer release |
 | `/antifly help` | List commands |
 | `/antifly hungermode <on\|off>` | Swap hard movement blocks for the hunger/health penalty |
 | `/antifly voidaccess <on\|off>` | Allow or block void entry (default on) |
