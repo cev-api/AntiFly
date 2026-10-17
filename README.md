@@ -4,7 +4,7 @@
 
 **Flight restriction that does one job properly.** Lightweight Bukkit + Fabric plugin/mod by [CevAPI](https://cevapi.dev).
 
-Current release: `1.1.4`
+Current release: `1.1.6`
 
 AntiFly is not a full anti-cheat, and that is deliberate. It is built for servers that want to restrict **flight and nothing else** - no reach checks, no killaura heuristics, no combat module quietly flagging your players at 3am. What you get instead is flight control accurate enough to leave legitimate movement alone.
 
@@ -28,7 +28,7 @@ Hard blocks are not always what a survival server wants. `/antifly hungermode on
 
 The upshot: no rubber-banding, no teleport-loop complaints, and an economy that discourages flight naturally instead of a wall that just frustrates players.
 
-## Void access - new in 1.1.4
+## Void (Nether Roof/Below Bedrock) Access
 
 A bonus toggle for servers that want to close off the void as well. `/antifly voidaccess off` covers the **Nether roof (Y ≥ 128)**, the **void below the Nether** and the **void below the Overworld**.
 
