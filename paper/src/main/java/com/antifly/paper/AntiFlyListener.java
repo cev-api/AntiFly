@@ -67,6 +67,10 @@ public final class AntiFlyListener implements Listener {
     public void onVoidMove(PlayerMoveEvent event) {
         if (event instanceof PlayerTeleportEvent) return;
         AntiFlyPlugin.PlayerState state = plugin.getState(event.getPlayer());
+        if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(event.getPlayer().getWorld().getName())) {
+            state.voidRedirectedMove = false;
+            return;
+        }
         state.voidRedirectedMove = redirectVoidMove(event, state);
     }
 
@@ -113,7 +117,8 @@ public final class AntiFlyListener implements Listener {
         // - the player just gets yanked back and alerted instead of charged.
         boolean hungerPenaltyActive = plugin.isHungerModeEnabled()
             && plugin.isWorldEnabled(player.getWorld().getName());
-        if (distSq > 36.0 && state.teleportGraceTicks <= 0
+        if (plugin.isAntiFlyEnabled() && plugin.isWorldEnabled(player.getWorld().getName())
+            && distSq > 36.0 && state.teleportGraceTicks <= 0
             && state.impulseGraceTicks <= 0 && !player.isGliding()
             && !hungerPenaltyActive && !isExempt(player)) {
             Vector vel = player.getVelocity();
@@ -166,6 +171,18 @@ public final class AntiFlyListener implements Listener {
             state.glideSustainedClimbTicks = 0;
             resetAirFlags(state);
             resetElytraBuffers(state);
+            updateSupport(state, serverOnGround, inFluid, to);
+            state.lastPos = to.clone();
+            state.wasGliding = player.isGliding();
+            return;
+        }
+
+        // Disabling AntiFly must stop every enforcement path, including Hunger
+        // Mode. Refresh the baseline so re-enabling cannot score this interval.
+        if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
+            resetAirFlags(state);
+            resetElytraBuffers(state);
+            state.glideSuppressTicks = 0;
             updateSupport(state, serverOnGround, inFluid, to);
             state.lastPos = to.clone();
             state.wasGliding = player.isGliding();
@@ -298,6 +315,9 @@ public final class AntiFlyListener implements Listener {
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onToggleGlideSuppressed(EntityToggleGlideEvent event) {
         if (!event.isGliding() || !(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
             return;
         }
         if (plugin.isExempt(player)) {
@@ -466,6 +486,10 @@ public final class AntiFlyListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onVoidTeleport(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
+        if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
+            return;
+        }
         AntiFlyPlugin.PlayerState state = plugin.getState(event.getPlayer());
         if (isForbiddenVoid(event.getTo()) && !isForbiddenVoid(event.getFrom())) {
             state.lastVoidSafe = event.getFrom().clone();
@@ -567,7 +591,7 @@ public final class AntiFlyListener implements Listener {
         // Void access denied. With Hunger Mode off the player is returned to
         // safety; with Hunger Mode on they may stay in the zone but pay health
         // directly, in place of the normal hunger-then-health chain.
-        if (!player.isDead() && !settings.voidAccess && isVoidZone(player.getLocation())) {
+        if (plugin.isAntiFlyEnabled() && !player.isDead() && !settings.voidAccess && isVoidZone(player.getLocation())) {
             if (enabled) {
                 if (!isExempt(player)) {
                     applyVoidDamage(player, state, settings, nowMs);
@@ -601,7 +625,7 @@ public final class AntiFlyListener implements Listener {
         // Hunger Mode replaces the movement blocks, so anything the movement
         // checks would have excused has to be excused here too - otherwise an
         // explicitly exempt player is still drained and damaged.
-        if (!enabled || player.isDead() || !plugin.isWorldEnabled(player.getWorld().getName())
+        if (!plugin.isAntiFlyEnabled() || !enabled || player.isDead() || !plugin.isWorldEnabled(player.getWorld().getName())
             || isExempt(player)) {
             state.lastHungerSampleMs = 0L;
             state.lastHungerSamplePos = null;
@@ -637,7 +661,9 @@ public final class AntiFlyListener implements Listener {
         boolean vehicleSupported = false;
         if (player.isInsideVehicle()) {
             Entity vehicle = player.getVehicle();
-            if (vehicle instanceof Boat boat) {
+            if (isGhastMount(vehicle)) {
+                vehicleSupported = true;
+            } else if (vehicle instanceof Boat boat) {
                 vehicleSupported = isBoatInFluid(boat) || hasBoatGroundSupport(boat);
             } else {
                 vehicleSupported = vehicle.isOnGround();
@@ -1117,6 +1143,15 @@ public final class AntiFlyListener implements Listener {
             return false;
         }
 
+        // Ghasts, including rideable variants, provide flight for their rider.
+        if (isGhastMount(vehicle)) {
+            resetAirFlags(state);
+            state.vehicleAirTicks = 0;
+            state.vehicleFallTicks = 0;
+            state.vehicleFallHorizontalDistance = 0.0;
+            return true;
+        }
+
         if (state.vehicleAirTicks == 0 && !(vehicle instanceof Boat)) {
             state.flightRevokeGraceTicks = 20;
         }
@@ -1206,6 +1241,12 @@ public final class AntiFlyListener implements Listener {
             || loc.getBlock().isLiquid()
             || loc.clone().subtract(0.0, 1.0, 0.0).getBlock().isLiquid()
             || loc.clone().add(0.0, 1.0, 0.0).getBlock().isLiquid();
+    }
+
+    private boolean isGhastMount(Entity vehicle) {
+        if (vehicle == null) return false;
+        String type = vehicle.getType().name();
+        return type.equals("GHAST") || type.equals("HAPPY_GHAST");
     }
 
     private boolean hasBoatGroundSupport(Boat boat) {

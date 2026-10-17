@@ -570,8 +570,9 @@ public final class AntiFlyFabric implements ModInitializer {
     private void handlePlayerTick(ServerPlayer player) {
         PlayerState state = states.computeIfAbsent(player.getUUID(), ignored -> new PlayerState());
         Vec3 pos = player.position();
+        boolean enforcementEnabled = config.enabled && !isWorldDisabled(player.level());
 
-        if (!config.voidAccess && player.isAlive()) {
+        if (enforcementEnabled && !config.voidAccess && player.isAlive()) {
             if (isForbiddenVoid(player, pos)) {
                 if (config.hungerModeEnabled) {
                     // Hunger Mode: the zone is allowed but costs health directly
@@ -620,7 +621,7 @@ public final class AntiFlyFabric implements ModInitializer {
         // A vanilla survival client cannot enable flight without the server
         // granting the ability, so anything else is a hacked client asking to
         // fly. Clearing it here stops the exploit before it moves at all.
-        if (player.getAbilities().flying && !player.getAbilities().mayfly
+        if (enforcementEnabled && player.getAbilities().flying && !player.getAbilities().mayfly
             && !player.isCreative() && !player.isSpectator() && !exempt.contains(player.getUUID())) {
             player.getAbilities().flying = false;
             player.onUpdateAbilities();
@@ -638,7 +639,7 @@ public final class AntiFlyFabric implements ModInitializer {
         if (state.teleportGraceTicks > 0) {
             state.teleportGraceTicks--;
         }
-        if (state.lastPos != null && state.teleportGraceTicks <= 0) {
+        if (enforcementEnabled && state.lastPos != null && state.teleportGraceTicks <= 0) {
             Vec3 delta = pos.subtract(state.lastPos);
             double distSq = delta.lengthSqr();
             if (distSq > 36.0) {
@@ -651,7 +652,7 @@ public final class AntiFlyFabric implements ModInitializer {
             }
         }
 
-        if ((!config.enabled && !config.hungerModeEnabled) || isWorldDisabled(player.level())) {
+        if (!enforcementEnabled) {
             boolean inFluid = isInFluid(player);
             boolean serverOnGround = hasGroundSupport(player);
             resetTransientState(state);
@@ -793,6 +794,14 @@ public final class AntiFlyFabric implements ModInitializer {
         // Bukkit implementation does.
         if (inVehicle) {
             Entity vehicle = player.getVehicle();
+            if (isGhastMount(vehicle)) {
+                resetTransientState(state);
+                state.lastVehiclePos = vehicle.position();
+                state.lastPos = pos;
+                state.lastServerOnGround = false;
+                state.wasGliding = false;
+                return;
+            }
             if (vehicle instanceof Boat boat && (inBoatWater || boatOnSupport)) {
                 Vec3 vel = boat.getDeltaMovement();
                 double horizontal = state.lastVehiclePos != null
@@ -1748,6 +1757,15 @@ public final class AntiFlyFabric implements ModInitializer {
         double horizontalLimit = vehicle instanceof Boat ? config.boatMaxHorizontal : config.vehicleFallMaxHorizontal;
         return deltaY <= config.vehicleFallMinDescent
             && horizontal <= horizontalLimit;
+    }
+
+    private boolean isGhastMount(Entity vehicle) {
+        if (vehicle == null) {
+            return false;
+        }
+        String typePath = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
+            .getKey(vehicle.getType()).getPath();
+        return typePath.equals("ghast") || typePath.equals("happy_ghast");
     }
 
     private boolean isFluidAt(Level level, BlockPos pos) {

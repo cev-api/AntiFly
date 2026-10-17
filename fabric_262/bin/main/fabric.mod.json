@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "antifly",
+  "version": "${version}",
+  "name": "AntiFly",
+  "description": "Blocks flying and excessive ground speed on servers.",
+  "authors": ["CevAPI"],
+  "contact": {
+    "homepage": "https://cevapi.dev",
+    "sources": "https://github.com/cev-api/AntiFly",
+    "issues": "https://github.com/cev-api/AntiFly/issues"
+  },
+  "license": "GPL-3.0-or-later",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.antifly.fabric.AntiFlyFabric"
+    ]
+  },
+  "depends": {
+    "minecraft": ">=${fabric_minecraft_version}",
+    "fabricloader": ">=${fabric_loader_version}",
+    "fabric-api": "*"
+  }
+}
