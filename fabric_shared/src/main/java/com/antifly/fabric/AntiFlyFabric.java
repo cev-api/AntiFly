@@ -360,7 +360,7 @@ public final class AntiFlyFabric implements ModInitializer {
             if (vehicle instanceof Boat boat) {
                 vehicleSupported = isBoatInFluid(boat) || hasBoatGroundSupport(boat);
             } else {
-                vehicleSupported = vehicle.onGround();
+                vehicleSupported = isMountSupported(vehicle);
             }
         }
         boolean unsupported = !hasGroundSupport(player) && !isInFluid(player) && !vehicleSupported;
@@ -637,6 +637,7 @@ public final class AntiFlyFabric implements ModInitializer {
         }
 
         if (!enforcementEnabled) {
+            state.lastVehicle = null;
             boolean inFluid = isInFluid(player);
             boolean serverOnGround = hasGroundSupport(player);
             resetTransientState(state);
@@ -657,7 +658,7 @@ public final class AntiFlyFabric implements ModInitializer {
         }
         detectExternalImpulse(player, state);
 
-        if (state.impulseGraceTicks > 0) {
+        if (state.impulseGraceTicks > 0 && !player.isPassenger()) {
             state.impulseGraceTicks--;
             // An external launch is legitimate propulsion, so it must not feed
             // the no-rocket altitude accumulator.
@@ -685,6 +686,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 state.wasGliding = player.isFallFlying();
                 return;
             }
+            state.lastVehicle = null;
             applyHungerMode(player, state, pos);
             resetTransientState(state);
             state.lastPos = pos;
@@ -709,6 +711,8 @@ public final class AntiFlyFabric implements ModInitializer {
         boolean serverOnGround = hasGroundSupport(player);
         boolean trustedGround = serverOnGround
             || (clientOnGround && hasGroundSupportLoose(player) && player.getDeltaMovement().y <= 0.05);
+        boolean rebound = !inVehicle && !player.isFallFlying() && state.lastPos != null
+            && state.rebound.sample(player.level().getGameTime(), pos.y - state.lastPos.y, isTouchingBounceBlock(player));
         boolean isGliding = player.isFallFlying();
         if (!isGliding) {
             state.glideStallTicks = 0;
@@ -754,6 +758,10 @@ public final class AntiFlyFabric implements ModInitializer {
                 ? Math.max(1, config.vehicleAirGraceTicks) : 0;
             state.lastVehicle = currentVehicle;
             state.lastVehiclePos = currentVehicle != null ? currentVehicle.position() : null;
+            state.lastVehicleSupportPos = null;
+            state.mountMotion = new com.antifly.common.MountMotion();
+            state.mountSamplePos = currentVehicle != null ? currentVehicle.position() : null;
+            state.mountSampleTick = Long.MIN_VALUE;
             resetTransientState(state);
             state.lastPos = pos;
             state.lastServerOnGround = serverOnGround;
@@ -761,15 +769,7 @@ public final class AntiFlyFabric implements ModInitializer {
         }
         state.wasInVehicle = inVehicle;
 
-        if (inVehicle && state.vehicleGraceTicks > 0) {
-            state.vehicleGraceTicks--;
-            state.lastVehiclePos = currentVehicle.position();
-            resetTransientState(state);
-            state.lastPos = pos;
-            state.lastServerOnGround = false;
-            state.wasGliding = false;
-            return;
-        }
+        if (inVehicle && state.vehicleGraceTicks > 0) state.vehicleGraceTicks--;
 
         // A vehicle governs the rider completely: the player's position is just
         // the seat, so scoring it against the player movement checks is what
@@ -778,6 +778,7 @@ public final class AntiFlyFabric implements ModInitializer {
         // Bukkit implementation does.
         if (inVehicle) {
             Entity vehicle = player.getVehicle();
+            if (!(vehicle instanceof Boat) && !checkMountMotion(player, state, vehicle)) return;
             if (isGhastMount(vehicle)) {
                 resetTransientState(state);
                 state.lastVehiclePos = vehicle.position();
@@ -804,6 +805,7 @@ public final class AntiFlyFabric implements ModInitializer {
                     // never throw the rider back to a long abandoned position.
                     resetTransientState(state);
                     updateSupport(state, false, true, pos);
+                    state.lastVehicleSupportPos = vehicle.position();
                 }
                 state.lastPos = pos;
                 state.lastServerOnGround = false;
@@ -811,8 +813,10 @@ public final class AntiFlyFabric implements ModInitializer {
                 return;
             }
 
-            if (serverOnGround || inFluid) {
+            if (!(vehicle instanceof Boat) && isMountSupported(vehicle)) {
                 resetTransientState(state);
+                updateSupport(state, false, true, pos);
+                state.lastVehicleSupportPos = vehicle.position();
                 state.lastVehiclePos = vehicle.position();
                 state.lastPos = pos;
                 state.lastServerOnGround = serverOnGround;
@@ -850,33 +854,12 @@ public final class AntiFlyFabric implements ModInitializer {
                 state.wasGliding = false;
                 return;
             }
-            if (isVehicleNaturalFall(deltaY, vel.y, horizontal, vehicle)) {
-                state.vehicleFallTicks++;
-                state.vehicleFallHorizontalDistance += horizontal;
-                state.vehicleAirTicks = 0;
-                double horizontalBudget = config.vehicleFallMaxHorizontal * Math.max(1, config.vehicleFallTicksMax);
-                if (state.vehicleFallTicks <= config.vehicleFallTicksMax
-                    && state.vehicleFallHorizontalDistance <= horizontalBudget) {
-                    state.lastPos = pos;
-                    state.lastServerOnGround = false;
-                    state.wasGliding = false;
-                    return;
-                }
-            } else {
-                state.vehicleFallTicks = 0;
-                state.vehicleFallHorizontalDistance = 0.0;
-            }
-
-            state.vehicleAirTicks++;
-            if (state.vehicleAirTicks > vehicleAirGraceTicks(vehicle)) {
-                Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
-                rubberBandVehicle(player, state, target, "vehicle_flight", state.vehicleAirTicks, vehicleAirGraceTicks(vehicle));
-            }
             state.lastPos = pos;
             state.lastServerOnGround = false;
             state.wasGliding = false;
             return;
         }
+
 
         if (isExempt(player)) {
             state.airNonFallTicks = 0;
@@ -1007,7 +990,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 : Math.sqrt(vel.x * vel.x + vel.z * vel.z);
             double maxUp = Math.max(maxAirVertical(player), vel.y + 0.05);
             sendDebugActionBar(player, state, "AIR", horizontal, deltaY, maxAllowed, maxUp);
-            if (!graceAir && deltaY > maxUp) {
+            if (!rebound && !graceAir && deltaY > maxUp) {
                 Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                 rubberBand(player, state, target, "air_vertical", deltaY, maxUp);
                 state.lastPos = pos;
@@ -1055,7 +1038,7 @@ public final class AntiFlyFabric implements ModInitializer {
             } else {
                 state.hoverTicks = 0;
             }
-            if (config.noFallDetectionEnabled && !serverOnGround && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
+            if (!rebound && config.noFallDetectionEnabled && !serverOnGround && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
                 state.airNonFallTicks++;
                 if (state.airNonFallTicks > config.airNonFallTicks) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
@@ -1166,7 +1149,7 @@ public final class AntiFlyFabric implements ModInitializer {
         Vec3 current = player.getDeltaMovement();
         Vec3 previous = state.lastVelocity;
         state.lastVelocity = current;
-        if (previous == null || config.impulseGraceTicks <= 0) {
+        if (player.isPassenger() || previous == null || config.impulseGraceTicks <= 0) {
             return;
         }
         double gain = current.length() - previous.length();
@@ -1553,8 +1536,15 @@ public final class AntiFlyFabric implements ModInitializer {
     private void rubberBandVehicle(ServerPlayer player, PlayerState state, Vec3 target, String reason,
                                    double actual, double allowed) {
         if (player.getVehicle() != null) {
-            player.getVehicle().setDeltaMovement(0.0, 0.0, 0.0);
-            player.getVehicle().teleportTo(target.x, target.y, target.z);
+            Entity vehicle = player.getVehicle();
+            Vec3 vehicleTarget = state.lastVehicleSupportPos != null ? state.lastVehicleSupportPos : vehicle.position();
+            if (state.lastVehicleSupportPos == null) {
+                // No validated mount anchor: use the last real player support,
+                // preserving the rider offset instead of accepting the current air position.
+                vehicleTarget = target.subtract(player.position().subtract(vehicle.position()));
+            }
+            vehicle.setDeltaMovement(0.0, 0.0, 0.0);
+            vehicle.teleportTo(vehicleTarget.x, vehicleTarget.y, vehicleTarget.z);
         }
         rubberBand(player, state, target, reason, actual, allowed);
     }
@@ -1580,7 +1570,8 @@ public final class AntiFlyFabric implements ModInitializer {
             return config.boatAirGraceTicks;
         }
         String typePath = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(vehicle.getType()).getPath();
-        if (typePath.equals("horse")
+        if (typePath.equals("nautilus") || typePath.equals("zombie_nautilus")
+            || typePath.equals("camel_husk") || typePath.equals("horse")
             || typePath.equals("donkey")
             || typePath.equals("mule")
             || typePath.equals("skeleton_horse")
@@ -1599,6 +1590,7 @@ public final class AntiFlyFabric implements ModInitializer {
             case "water_speed" -> "waterMax";
             case "water_vertical" -> "waterVerticalMax";
             case "ground_spoof" -> "groundSpoofTicksLimit";
+            case "vehicle_speed" -> "groundMountedMax";
             case "boat_speed" -> "boatMaxHorizontal";
             case "air_speed" -> "maxAirHorizontal";
             case "air_vertical" -> "maxAirVertical";
@@ -1737,10 +1729,67 @@ public final class AntiFlyFabric implements ModInitializer {
         }
     }
 
-    private boolean isVehicleNaturalFall(double deltaY, double velocityY, double horizontal, Entity vehicle) {
-        double horizontalLimit = vehicle instanceof Boat ? config.boatMaxHorizontal : config.vehicleFallMaxHorizontal;
-        return deltaY <= config.vehicleFallMinDescent
-            && horizontal <= horizontalLimit;
+    private boolean checkMountMotion(ServerPlayer player, PlayerState state, Entity vehicle) {
+        long tick = vehicle.level().getGameTime();
+        if (state.mountSampleTick == tick) return true;
+        Vec3 pos = vehicle.position();
+        Vec3 prev = state.mountSamplePos != null ? state.mountSamplePos : pos;
+        state.mountSamplePos = pos;
+        state.mountSampleTick = tick;
+        String type = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(vehicle.getType()).getPath();
+        boolean aquatic = type.contains("nautilus");
+        boolean camel = type.contains("camel");
+        double speed = config.groundMountedMax;
+        double jump = 0.7;
+        double movementAttribute = 0;
+        if (vehicle instanceof net.minecraft.world.entity.LivingEntity living) {
+            movementAttribute = living.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED);
+            speed = Math.max(speed, movementAttribute * (aquatic ? 0.4 : 2.4) + 0.1);
+            var attribute = living.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.JUMP_STRENGTH);
+            if (attribute != null) jump = attribute.getValue();
+            var boost = living.getEffect(MobEffects.JUMP_BOOST);
+            if (boost != null) jump += 0.1 * (boost.getAmplifier() + 1);
+        }
+        double dashBoost = aquatic ? 1.2 * movementAttribute : camel ? 22.2222 * movementAttribute : 0;
+        boolean dash = false;
+        if (aquatic || camel) {
+            try { dash = Boolean.TRUE.equals(vehicle.getClass().getMethod("isDashing").invoke(vehicle)); }
+            catch (ReflectiveOperationException ignored) { }
+        }
+        var result = state.mountMotion.sample(tick, horizontalDistance(prev, pos), pos.y - prev.y,
+            isGhastMount(vehicle) || isMountSupported(vehicle), speed, Math.max(jump, aquatic ? 1.2 : camel ? 1.5 : jump),
+            vehicleAirGraceTicks(vehicle), dash, dashBoost, camel ? 55 : 40, isTouchingBounceBlock(vehicle));
+        if (result == com.antifly.common.MountMotion.Result.OK) return true;
+        Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : player.position();
+        rubberBandVehicle(player, state, target,
+            result == com.antifly.common.MountMotion.Result.SPEED ? "vehicle_speed" : "vehicle_flight",
+            result == com.antifly.common.MountMotion.Result.SPEED ? horizontalDistance(prev, pos) : state.mountMotion.airborneTicks(),
+            result == com.antifly.common.MountMotion.Result.SPEED ? speed : state.mountMotion.graceTicks());
+        state.mountSamplePos = vehicle.position();
+        state.lastPos = player.position();
+        return false;
+    }
+
+    private boolean isMountSupported(Entity vehicle) {
+        AABB box = vehicle.getBoundingBox();
+        AABB feet = new AABB(box.minX + 0.03, box.minY - 0.2, box.minZ + 0.03,
+            box.maxX - 0.03, box.minY + 0.001, box.maxZ - 0.03);
+        return vehicle.isInWater() || vehicle.isInLava()
+            || vehicle.level().getBlockCollisions(vehicle, feet).iterator().hasNext();
+    }
+
+    private boolean isTouchingBounceBlock(Entity entity) {
+        AABB box = entity.getBoundingBox();
+        for (int x = Mth.floor(box.minX + 0.03); x <= Mth.floor(box.maxX - 0.03); x++) {
+            for (int z = Mth.floor(box.minZ + 0.03); z <= Mth.floor(box.maxZ - 0.03); z++) {
+                for (int y = Mth.floor(box.minY - 0.2); y <= Mth.floor(box.minY); y++) {
+                    BlockState block = entity.level().getBlockState(new BlockPos(x, y, z));
+                    if (block.is(net.minecraft.tags.BlockTags.BEDS)
+                        || block.is(net.minecraft.world.level.block.Blocks.SLIME_BLOCK)) return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean isGhastMount(Entity vehicle) {
@@ -1762,6 +1811,9 @@ public final class AntiFlyFabric implements ModInitializer {
     }
 
     private void resetState(PlayerState state, Vec3 pos) {
+        state.rebound = new com.antifly.common.ReboundMotion();
+        state.lastVehicle = null;
+
         state.airTicks = 0;
         state.airNonFallTicks = 0;
         state.airSessionTicks = 0;
@@ -2665,6 +2717,11 @@ public final class AntiFlyFabric implements ModInitializer {
         boolean wasInVehicle;
         Entity lastVehicle;
         Vec3 lastVehiclePos;
+        Vec3 lastVehicleSupportPos;
+        com.antifly.common.ReboundMotion rebound = new com.antifly.common.ReboundMotion();
+        com.antifly.common.MountMotion mountMotion = new com.antifly.common.MountMotion();
+        Vec3 mountSamplePos;
+        long mountSampleTick = Long.MIN_VALUE;
         long lastRubberBandAtMs;
         int lastFireworkUses = -1;
         int rocketGraceTicks;

@@ -857,6 +857,12 @@ public final class AntiFlyPlugin extends JavaPlugin {
         boolean hungerElytraExploit;
         final com.antifly.common.ElytraPhysics hungerElytraVerifier = new com.antifly.common.ElytraPhysics();
         final com.antifly.common.ElytraPhysics.Input hungerElytraInput = new com.antifly.common.ElytraPhysics.Input();
+        com.antifly.common.ReboundMotion rebound = new com.antifly.common.ReboundMotion();
+        boolean reboundActive;
+        org.bukkit.entity.Entity mountEntity;
+        com.antifly.common.MountMotion mountMotion = new com.antifly.common.MountMotion();
+        org.bukkit.Location mountSamplePos;
+        long mountSampleTick = Long.MIN_VALUE;
         org.bukkit.Location lastPos;
 
         boolean serverAllowedFlight;

@@ -138,6 +138,8 @@ public final class AntiFlyListener implements Listener {
         boolean boatOnSupport = inVehicle && player.getVehicle() instanceof Boat boat && hasBoatGroundSupport(boat);
         boolean clientOnGround = player.isOnGround();
         boolean serverOnGround = hasGroundSupport(player, to);
+        state.reboundActive = !inVehicle && !player.isGliding()
+            && state.rebound.sample(player.getWorld().getGameTime(), to.getY() - from.getY(), isTouchingBounceBlock(player, to));
         boolean nearGround = isNearGround(player, to);
         boolean wasServerOnGround = state.lastServerOnGround;
 
@@ -163,7 +165,7 @@ public final class AntiFlyListener implements Listener {
         // player's doing. While the impulse is still carrying them, treat the
         // movement exactly like a legitimate exemption instead of flagging
         // speed the client never asked for.
-        if (state.impulseGraceTicks > 0) {
+        if (state.impulseGraceTicks > 0 && !player.isInsideVehicle()) {
             state.impulseGraceTicks--;
             // An external launch is legitimate propulsion, so it must not feed
             // the no-rocket altitude accumulator.
@@ -194,7 +196,7 @@ public final class AntiFlyListener implements Listener {
             // server's authoritative movement path; the periodic sampler below
             // remains responsible for stationary hovering.
             boolean vehicleSupported = inVehicle && (inBoatWater || boatOnSupport
-                || (!(player.getVehicle() instanceof Boat) && player.getVehicle().isOnGround()));
+                || (!(player.getVehicle() instanceof Boat) && isMountSupported(player.getVehicle())));
             boolean unsupportedBoat = inVehicle && player.getVehicle() instanceof Boat
                 && !inFluid && !boatOnSupport;
             boolean movementUnsupported = (!serverOnGround && !isSupportedByCollisionLikeBlock(to)
@@ -463,7 +465,7 @@ public final class AntiFlyListener implements Listener {
         Vector current = player.getVelocity();
         Vector previous = state.lastVelocity;
         state.lastVelocity = current.clone();
-        if (previous == null || settings.impulseGraceTicks <= 0) {
+        if (player.isInsideVehicle() || previous == null || settings.impulseGraceTicks <= 0) {
             return;
         }
         // Gliding has its own physics model and its own checks. A large
@@ -588,6 +590,15 @@ public final class AntiFlyListener implements Listener {
         boolean enabled = plugin.isHungerModeEnabled();
         long nowMs = System.currentTimeMillis();
         AntiFlyPlugin.PlayerState state = plugin.getState(player);
+        if (enabled || !plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
+            state.mountEntity = null;
+        }
+        if (!enabled && plugin.isAntiFlyEnabled() && !player.isDead()
+            && plugin.isWorldEnabled(player.getWorld().getName()) && !isExempt(player)) {
+            Entity vehicle = player.getVehicle();
+            if (vehicle != null && !(vehicle instanceof Boat)) checkMountMotion(player, state, vehicle);
+            else state.mountEntity = null;
+        }
         // Void access denied. With Hunger Mode off the player is returned to
         // safety; with Hunger Mode on they may stay in the zone but pay health
         // directly, in place of the normal hunger-then-health chain.
@@ -666,7 +677,7 @@ public final class AntiFlyListener implements Listener {
             } else if (vehicle instanceof Boat boat) {
                 vehicleSupported = isBoatInFluid(boat) || hasBoatGroundSupport(boat);
             } else {
-                vehicleSupported = vehicle.isOnGround();
+                vehicleSupported = isMountSupported(vehicle);
             }
         }
         boolean unsupported = !hasGroundSupport(player, pos)
@@ -1035,7 +1046,7 @@ public final class AntiFlyListener implements Listener {
             state.airHorizontalBuffer = decay(state.airHorizontalBuffer, settings.bufferDecay);
         }
 
-        if (!graceAir && deltaY > allowedVertical) {
+        if (!state.reboundActive && !graceAir && deltaY > allowedVertical) {
             state.airVerticalBuffer += deltaY - allowedVertical;
         } else {
             state.airVerticalBuffer = decay(state.airVerticalBuffer, settings.bufferDecay);
@@ -1056,7 +1067,7 @@ public final class AntiFlyListener implements Listener {
         }
 
         if (settings.noFallDetectionEnabled) {
-            boolean notFalling = deltaY >= -0.02;
+            boolean notFalling = !state.reboundActive && deltaY >= -0.02;
             if (notFalling) {
                 state.airNonFallTicks++;
             } else {
@@ -1143,6 +1154,7 @@ public final class AntiFlyListener implements Listener {
             return false;
         }
 
+        if (!(vehicle instanceof Boat) && !checkMountMotion(player, state, vehicle)) return true;
         // Ghasts, including rideable variants, provide flight for their rider.
         if (isGhastMount(vehicle)) {
             resetAirFlags(state);
@@ -1151,6 +1163,7 @@ public final class AntiFlyListener implements Listener {
             state.vehicleFallHorizontalDistance = 0.0;
             return true;
         }
+
 
         if (state.vehicleAirTicks == 0 && !(vehicle instanceof Boat)) {
             state.flightRevokeGraceTicks = 20;
@@ -1175,7 +1188,8 @@ public final class AntiFlyListener implements Listener {
             return true;
         }
 
-        if (serverOnGround || inFluid) {
+        if (!(vehicle instanceof Boat) && isMountSupported(vehicle)) {
+            updateSupport(state, false, true, to);
             state.vehicleAirTicks = 0;
             state.vehicleFallTicks = 0;
             state.vehicleFallHorizontalDistance = 0.0;
@@ -1202,37 +1216,90 @@ public final class AntiFlyListener implements Listener {
                 return true;
             }
         }
-        double naturalFallHorizontal = vehicle instanceof Boat ? settings.boatMaxHorizontal : settings.vehicleFallMaxHorizontal;
-        boolean naturalFall = deltaY <= settings.vehicleFallMinDescent && horizontal <= naturalFallHorizontal;
-
-        if (naturalFall) {
-            // A long fall still has to be a fall: a vehicle that "descends"
-            // while covering enormous horizontal distance is gliding, not
-            // falling, so the cumulative horizontal budget bounds the whole
-            // window rather than each individual tick.
-            state.vehicleFallTicks++;
-            state.vehicleFallHorizontalDistance += horizontal;
-            double horizontalBudget = settings.vehicleFallMaxHorizontal * Math.max(1, settings.vehicleFallTicksMax);
-            if (state.vehicleFallTicks <= settings.vehicleFallTicksMax
-                && state.vehicleFallHorizontalDistance <= horizontalBudget) {
-                state.vehicleAirTicks = 0;
-                return true;
-            }
-            rubberBandVehicle(player, state, "vehicle_flight", state.vehicleFallHorizontalDistance, horizontalBudget);
-            return true;
-        }
-        state.vehicleFallTicks = 0;
-        state.vehicleFallHorizontalDistance = 0.0;
-
-        int grace = vehicle instanceof AbstractHorse ? settings.horseAirGraceTicks
-            : (vehicle instanceof Boat ? settings.boatAirGraceTicks : settings.vehicleAirGraceTicks);
-        state.vehicleAirTicks++;
-        if (state.vehicleAirTicks <= grace) {
-            return true;
-        }
-
-        rubberBandVehicle(player, state, "vehicle_flight", state.vehicleAirTicks, grace);
         return true;
+    }
+
+    private boolean checkMountMotion(Player player, AntiFlyPlugin.PlayerState state, Entity vehicle) {
+        long tick = vehicle.getWorld().getGameTime();
+        Location pos = vehicle.getLocation();
+        if (state.mountEntity != vehicle) {
+            state.mountEntity = vehicle;
+            state.mountMotion = new com.antifly.common.MountMotion();
+            state.mountSamplePos = pos.clone();
+            state.mountSampleTick = Long.MIN_VALUE;
+        }
+        if (state.mountSampleTick == tick) return true;
+        Location prev = state.mountSamplePos;
+        state.mountSamplePos = pos.clone();
+        state.mountSampleTick = tick;
+        String type = vehicle.getType().name();
+        boolean aquatic = type.contains("NAUTILUS");
+        boolean camel = type.contains("CAMEL");
+        double speed = plugin.getSettings().groundMountedMax;
+        double jump = 0.7;
+        double movementAttribute = 0;
+        if (vehicle instanceof org.bukkit.entity.LivingEntity living) {
+            // Resolve names through the registry for both old GENERIC_* and new APIs.
+            for (org.bukkit.attribute.Attribute attribute : org.bukkit.Registry.ATTRIBUTE) {
+                String key = attribute.getKey().getKey();
+                var value = living.getAttribute(attribute);
+                if (value == null) continue;
+                if (key.endsWith("movement_speed")) {
+                    movementAttribute = value.getValue();
+                    speed = Math.max(speed, movementAttribute * (aquatic ? 0.4 : 2.4) + 0.1);
+                }
+                if (key.endsWith("jump_strength")) jump = value.getValue();
+            }
+        }
+        if (vehicle instanceof org.bukkit.entity.LivingEntity living) {
+            for (var effect : living.getActivePotionEffects()) {
+                if (effect.getType().getKey().getKey().equals("jump_boost")) jump += 0.1 * (effect.getAmplifier() + 1);
+            }
+        }
+        boolean dash = (aquatic || camel) && PlatformCompat.isDashing(vehicle);
+        int grace = vehicle instanceof AbstractHorse || aquatic || camel
+            ? plugin.getSettings().horseAirGraceTicks : plugin.getSettings().vehicleAirGraceTicks;
+        var result = state.mountMotion.sample(tick, horizontalDistance(prev, pos), pos.getY() - prev.getY(),
+            isGhastMount(vehicle) || isMountSupported(vehicle), speed, Math.max(jump, aquatic ? 1.2 : camel ? 1.5 : jump), grace,
+            dash, aquatic ? 1.2 * movementAttribute : camel ? 22.2222 * movementAttribute : 0, camel ? 55 : 40, isTouchingBounceBlock(vehicle, pos));
+        if (result == com.antifly.common.MountMotion.Result.OK) return true;
+        rubberBandVehicle(player, state, result == com.antifly.common.MountMotion.Result.SPEED
+            ? "vehicle_speed" : "vehicle_flight",
+            result == com.antifly.common.MountMotion.Result.SPEED ? horizontalDistance(prev, pos) : state.mountMotion.airborneTicks(),
+            result == com.antifly.common.MountMotion.Result.SPEED ? speed : state.mountMotion.graceTicks());
+        state.mountSamplePos = vehicle.getLocation();
+        return false;
+    }
+
+    private boolean isTouchingBounceBlock(Entity player, Location to) {
+        BoundingBox box = player.getBoundingBox();
+        Location current = player.getLocation();
+        box.shift(to.getX() - current.getX(), to.getY() - current.getY(), to.getZ() - current.getZ());
+        for (int x = (int)Math.floor(box.getMinX() + 0.03); x <= (int)Math.floor(box.getMaxX() - 0.03); x++) {
+            for (int z = (int)Math.floor(box.getMinZ() + 0.03); z <= (int)Math.floor(box.getMaxZ() - 0.03); z++) {
+                for (int y = (int)Math.floor(box.getMinY() - 0.2); y <= (int)Math.floor(box.getMinY()); y++) {
+                    Material type = to.getWorld().getBlockAt(x, y, z).getType();
+                    if (type == Material.SLIME_BLOCK || type.name().endsWith("_BED")) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isMountSupported(Entity vehicle) {
+        if (vehicle.isInWater() || PlatformCompat.isInLava(vehicle)) return true;
+        BoundingBox box = vehicle.getBoundingBox();
+        BoundingBox feet = new BoundingBox(box.getMinX() + 0.03, box.getMinY() - 0.2, box.getMinZ() + 0.03,
+            box.getMaxX() - 0.03, box.getMinY() + 0.001, box.getMaxZ() - 0.03);
+        for (int x = (int)Math.floor(feet.getMinX()); x <= (int)Math.floor(feet.getMaxX()); x++) {
+            for (int z = (int)Math.floor(feet.getMinZ()); z <= (int)Math.floor(feet.getMaxZ()); z++) {
+                for (int y = (int)Math.floor(feet.getMinY()); y <= (int)Math.floor(feet.getMaxY()); y++) {
+                    var block = vehicle.getWorld().getBlockAt(x, y, z);
+                    if (!block.isPassable() && block.getBoundingBox().overlaps(feet)) return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean isBoatInFluid(Boat boat) {
@@ -1786,6 +1853,7 @@ public final class AntiFlyListener implements Listener {
             case "ground_speed" -> "groundWalkMax";
             case "water_speed" -> "waterMax";
             case "water_vertical" -> "waterVerticalMax";
+            case "vehicle_speed" -> "groundMountedMax";
             case "boat_speed" -> "boatMaxHorizontal";
             case "ground_spoof" -> "groundSpoofTicksLimit";
             case "air_offset_horizontal" -> "horizontalBufferLimit/maxAirHorizontal";
@@ -1857,6 +1925,10 @@ public final class AntiFlyListener implements Listener {
     }
 
     private void resetState(AntiFlyPlugin.PlayerState state, Location loc) {
+        state.rebound = new com.antifly.common.ReboundMotion();
+        state.mountEntity = null;
+        state.reboundActive = false;
+
         resetAirFlags(state);
         resetElytraBuffers(state);
         state.serverAllowedFlight = false;

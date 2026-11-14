@@ -116,6 +116,22 @@ final class PlatformCompat {
         return entity.getLocation().getBlock().getType() == Material.LAVA;
     }
 
+    // New mounts may precede their Bukkit dash API. Query only server-owned
+    // state; the movement verifier still imposes its own cooldown and decay.
+    static boolean isDashing(Entity entity) {
+        try {
+            Method method = probeMethod(entity.getClass(), "isDashing");
+            if (method != null) return Boolean.TRUE.equals(method.invoke(entity));
+            Method getHandle = probeMethod(entity.getClass(), "getHandle");
+            if (getHandle == null) return false;
+            Object handle = getHandle.invoke(entity);
+            Method dash = probeMethod(handle.getClass(), "isDashing");
+            return dash != null && Boolean.TRUE.equals(dash.invoke(handle));
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return false;
+        }
+    }
+
     private static Consumer<Object> consumerOf(Runnable task) {
         return scheduledTask -> task.run();
     }

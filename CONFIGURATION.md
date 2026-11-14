@@ -69,7 +69,7 @@ Defaults in brackets.
 ## Legitimate causes
 `impulseGraceTicks` (20) · `groundSpoofTicksLimit` (3) · `repeatOffenderAlertCount` (10)
 
-- **Flight or speed caused by something outside the player's control is never punished.** A wind charge, TNT or bed blast, mace smash or mob knockback produces a velocity gain no legitimate input can match (a vanilla jump is only 0.42 blocks/tick), so the checks stand down for `impulseGraceTicks`. Landing only removes velocity, so it never qualifies. Set to `0` to disable.
+- **Flight or speed caused by something outside the player's control is never punished.** A wind charge, TNT or bed blast, mace smash or mob knockback produces a velocity gain no legitimate input can match (a vanilla jump is only 0.42 blocks/tick), so the checks stand down for `impulseGraceTicks`. Bed and slime rebounds use a separate falling-contact check that permits a decaying upward trajectory without disabling horizontal speed or hover checks. Set to `0` to disable.
 - **Water movement is measured against the vanilla speed modifiers** (sprinting, Depth Strider, Dolphin's Grace), and ground movement against sprinting and Speed potions, so enchanted or buffed movement is not flagged.
 - `groundSpoofTicksLimit` is the number of consecutive ticks a client may claim solid ground the server cannot find before it counts as a no-fall style spoof.
 - `repeatOffenderAlertCount` is how many checks a player may trip within 5 minutes before staff get a follow-up warning. Setbacks deliberately do not clear this count, so someone who is corrected and immediately continues is distinguishable from a one-off lag spike. The value is clamped to a minimum of `1`.
@@ -77,7 +77,7 @@ Defaults in brackets.
 ## Vehicle fall
 `vehicleFallMinDescent` (-0.04) · `vehicleFallMaxHorizontal` (0.40) · `vehicleFallTicksMax` (60)
 
-Vehicles are scored on their own movement, and a rider is never judged on the seat snap, release bump or wave bob. A boat that is genuinely afloat or resting on support is exempt.
+Vehicles are scored on their own movement, and a rider is never judged on the seat snap, release bump or wave bob. A boat that is genuinely afloat or resting on support is exempt. A grounded or submerged mount is supported; mounted speed is checked separately using `groundMountedMax` and the mount's server attributes. Camel and nautilus dash allowances decay and require a fresh dash with its cooldown. Unsupported mounts must follow a falling trajectory after their jump grace; shallow descent cannot reset that window. Nautiluses and camel husks use `horseAirGraceTicks`. The legacy `vehicleFall*` settings remain readable for config compatibility; mounted fall validation now uses the trajectory check rather than the old descent/time budget.
 
 ## Elytra
 The Elytra verifier samples accepted movement once per server tick and predicts the next unpowered glide step from pitch, yaw, and prior velocity. It accumulates residual motion, excess energy relative to that prediction, unnaturally constant speed, and sharp turning. It only acts when multiple channels agree. Rocket boosts, Riptide, server velocity events (Paper), damage impulses (Fabric), relevant potion effects, and collisions reset or pause the model.
