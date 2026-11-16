@@ -67,7 +67,7 @@ public final class AntiFlyListener implements Listener {
     public void onVoidMove(PlayerMoveEvent event) {
         if (event instanceof PlayerTeleportEvent) return;
         AntiFlyPlugin.PlayerState state = plugin.getState(event.getPlayer());
-        if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(event.getPlayer().getWorld().getName())) {
+        if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(event.getPlayer().getWorld().getName()) || plugin.isExempt(event.getPlayer())) {
             state.voidRedirectedMove = false;
             return;
         }
@@ -117,13 +117,14 @@ public final class AntiFlyListener implements Listener {
         // - the player just gets yanked back and alerted instead of charged.
         boolean hungerPenaltyActive = plugin.isHungerModeEnabled()
             && plugin.isWorldEnabled(player.getWorld().getName());
-        if (plugin.isAntiFlyEnabled() && plugin.isWorldEnabled(player.getWorld().getName())
-            && distSq > 36.0 && state.teleportGraceTicks <= 0
+        if (plugin.checkEnabled("air_teleport") && plugin.isAntiFlyEnabled() && plugin.isWorldEnabled(player.getWorld().getName())
+            && settings.airTeleportDistance > 0.0
+            && distSq > settings.airTeleportDistance * settings.airTeleportDistance && state.teleportGraceTicks <= 0
             && state.impulseGraceTicks <= 0 && !player.isGliding()
             && !hungerPenaltyActive && !isExempt(player)) {
             Vector vel = player.getVelocity();
             if (vel.lengthSquared() < distSq * 0.25) {
-                fail(player, state, "air_teleport", Math.sqrt(distSq), 6.0);
+                fail(player, state, "air_teleport", Math.sqrt(distSq), settings.airTeleportDistance);
                 return;
             }
         }
@@ -263,11 +264,13 @@ public final class AntiFlyListener implements Listener {
             return;
         }
 
+        if (state.glideSuppressTicks > 0 && !plugin.checkEnabled(state.glideSuppressCheck)) state.glideSuppressTicks = 0;
         if (state.glideSuppressTicks > 0) {
             state.glideSuppressTicks--;
             if (player.isGliding()) {
                 // The client may have re-sent START_FALL_FLYING since the last
                 // tick; keep refusing it for the whole cooldown.
+                debugIntervention(player, "elytra_suppression", "elytraGlideSuppressionTicks", state.glideSuppressTicks, 0.0);
                 player.setGliding(false);
                 resetElytraBuffers(state);
                 resetAirFlags(state);
@@ -326,7 +329,8 @@ public final class AntiFlyListener implements Listener {
             return;
         }
         AntiFlyPlugin.PlayerState state = plugin.getState(player);
-        if (state.glideSuppressTicks > 0) {
+        if (state.glideSuppressTicks > 0 && plugin.checkEnabled(state.glideSuppressCheck)) {
+            debugIntervention(player, "elytra_suppression", "elytraGlideSuppressionTicks/check " + state.glideSuppressCheck, state.glideSuppressTicks, 0.0);
             event.setCancelled(true);
         }
     }
@@ -445,12 +449,13 @@ public final class AntiFlyListener implements Listener {
     @EventHandler(ignoreCancelled = true)
     public void onToggleFlight(PlayerToggleFlightEvent event) {
         Player player = event.getPlayer();
-        if (!event.isFlying() || isExempt(player)) {
+        if (!event.isFlying() || isExempt(player) || !plugin.checkEnabled("flight_toggle")) {
             return;
         }
         if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
             return;
         }
+        debugIntervention(player, "flight_toggle", "check flight_toggle", 1.0, 0.0);
         event.setCancelled(true);
         player.setFlying(false);
     }
@@ -489,7 +494,9 @@ public final class AntiFlyListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onVoidTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
-        if (!plugin.isAntiFlyEnabled() || !plugin.isWorldEnabled(player.getWorld().getName())) {
+        Location destination = event.getTo();
+        if (!plugin.isAntiFlyEnabled() || destination == null || destination.getWorld() == null
+            || !plugin.isWorldEnabled(destination.getWorld().getName()) || plugin.isExempt(player)) {
             return;
         }
         AntiFlyPlugin.PlayerState state = plugin.getState(event.getPlayer());
@@ -497,6 +504,7 @@ public final class AntiFlyListener implements Listener {
             state.lastVoidSafe = event.getFrom().clone();
         }
         if (isForbiddenVoid(event.getTo())) {
+            debugIntervention(player, "void_redirect", "voidaccess", 0.0, 0.0);
             event.setTo(voidReturnPoint(event.getPlayer(), state));
         }
     }
@@ -545,6 +553,7 @@ public final class AntiFlyListener implements Listener {
             return false;
         }
         Location target = voidReturnPoint(event.getPlayer(), state);
+        debugIntervention(event.getPlayer(), "void_redirect", "voidaccess", 0.0, 0.0);
         if (event.getPlayer().getVehicle() != null) {
             Entity vehicle = event.getPlayer().getVehicle();
             event.getPlayer().leaveVehicle();
@@ -602,7 +611,8 @@ public final class AntiFlyListener implements Listener {
         // Void access denied. With Hunger Mode off the player is returned to
         // safety; with Hunger Mode on they may stay in the zone but pay health
         // directly, in place of the normal hunger-then-health chain.
-        if (plugin.isAntiFlyEnabled() && !player.isDead() && !settings.voidAccess && isVoidZone(player.getLocation())) {
+        if (plugin.isAntiFlyEnabled() && plugin.isWorldEnabled(player.getWorld().getName())
+            && !plugin.isExempt(player) && !player.isDead() && !settings.voidAccess && isVoidZone(player.getLocation())) {
             if (enabled) {
                 if (!isExempt(player)) {
                     applyVoidDamage(player, state, settings, nowMs);
@@ -620,6 +630,7 @@ public final class AntiFlyListener implements Listener {
                 return;
             }
             Location target = voidReturnPoint(player, state);
+            debugIntervention(player, "void_redirect", "voidaccess", 0.0, 0.0);
             if (player.getVehicle() != null) {
                 Entity vehicle = player.getVehicle();
                 player.leaveVehicle();
@@ -847,6 +858,7 @@ public final class AntiFlyListener implements Listener {
                                 // Use a separate custom damage event so the flight
                                 // penalty stacks with vanilla starvation at zero food.
                                 double flightDamage = dmg;
+                                debugIntervention(player, "flight_damage", "hungerModeFlightDamageEnabled/hungerModeFlightDamagePerSecond", flightDamage, 0.0);
                                 PlatformCompat.runForPlayer(plugin, player, () -> player.damage(flightDamage));
                             }
                         }
@@ -873,6 +885,7 @@ public final class AntiFlyListener implements Listener {
         // delayed bulk update after the player stops moving.
         if (state.hungerDebt >= 1.0 && player.getFoodLevel() > 0) {
             int foodAfter = player.getFoodLevel() - 1;
+            debugIntervention(player, "flight_hunger", "hungermode/hungerModeHungerPerSecondAtMaxSpeed", 1.0, 0.0);
             // Entity state changes are only permitted on the owning region
             // thread on Folia; elsewhere this runs inline.
             PlatformCompat.runForPlayer(plugin, player, () -> player.setFoodLevel(foodAfter));
@@ -893,6 +906,7 @@ public final class AntiFlyListener implements Listener {
                     // the health directly rather than letting that immunity or
                     // another damage listener defer the required penalty.
                     double healthAfter = Math.max(0.0, player.getHealth() - dmg);
+                    debugIntervention(player, "flight_damage", "hungerModeFlightDamageEnabled/hungerModeFlightDamagePerSecond", dmg, 0.0);
                     PlatformCompat.runForPlayer(plugin, player, () -> player.setHealth(healthAfter));
                     state.lastFlightDamageAtSeconds = state.flightAirborneSeconds;
                 }
@@ -926,6 +940,7 @@ public final class AntiFlyListener implements Listener {
     private void damageVoid(Player player, AntiFlyPlugin.Settings settings) {
         double dmg = settings.hungerModeFlightDamagePerSecond;
         if (dmg > 0.0 && player.isValid()) {
+            debugIntervention(player, "void_damage", "voidaccess/hungerModeFlightDamagePerSecond", dmg, 0.0);
             player.damage(dmg);
         }
     }
@@ -944,12 +959,12 @@ public final class AntiFlyListener implements Listener {
         // client often still reports airborne across that boundary, so this has to
         // respect the same landing grace the ground-speed check below already does.
         // Without it, every normal glide landing reads as ground spoofing.
-        if (state.glideLandingGraceTicks <= 0
+        if (plugin.checkEnabled("ground_spoof_speed") && state.glideLandingGraceTicks <= 0
             && !player.isOnGround() && horizontal > (maxAllowed + groundTolerance)) {
             fail(player, state, "ground_spoof_speed", horizontal, maxAllowed);
             return;
         }
-        if (state.glideLandingGraceTicks <= 0 && horizontal > (maxAllowed + groundTolerance)) {
+        if (plugin.checkEnabled("ground_speed") && state.glideLandingGraceTicks <= 0 && horizontal > (maxAllowed + groundTolerance)) {
             fail(player, state, "ground_speed", horizontal, maxAllowed);
             return;
         }
@@ -966,11 +981,11 @@ public final class AntiFlyListener implements Listener {
         if (plugin.isDebug(player)) {
             sendDebugActionBar(player, state, "FLUID", horizontal, deltaY, maxHorizontal, maxVertical);
         }
-        if (horizontal > maxHorizontal) {
+        if (plugin.checkEnabled("water_speed") && horizontal > maxHorizontal) {
             fail(player, state, "water_speed", horizontal, maxHorizontal);
             return;
         }
-        if (deltaY > maxVertical) {
+        if (plugin.checkEnabled("water_vertical") && deltaY > maxVertical) {
             fail(player, state, "water_vertical", deltaY, maxVertical);
             return;
         }
@@ -982,6 +997,14 @@ public final class AntiFlyListener implements Listener {
         AntiFlyPlugin.Settings settings = plugin.getSettings();
         Vector vel = player.getVelocity();
 
+        if (!plugin.checkEnabled("air_sustained")) state.sustainedAirTicks = 0;
+        if (!plugin.checkEnabled("ground_spoof")) { state.groundSpoofTicks = 0; state.groundSpoofBuffer = 0.0; }
+        if (!plugin.checkEnabled("air_offset_horizontal")) state.airHorizontalBuffer = 0.0;
+        if (!plugin.checkEnabled("air_offset_vertical")) state.airVerticalBuffer = 0.0;
+        if (!plugin.checkEnabled("air_hover")) { state.hoverBuffer = 0.0; state.hoverTicks = 0; }
+        if (!plugin.checkEnabled("air_nonfall")) state.airNonFallTicks = 0;
+        if (!plugin.checkEnabled("air_antikick")) state.antiKickBuffer = 0.0;
+
         state.airTicks++;
         // Sustained air time catches level "bobbing" flight that evades the
         // speed, vertical, hover and no-fall checks by cruising under the caps
@@ -989,7 +1012,7 @@ public final class AntiFlyListener implements Listener {
         // fluid/vehicle support) resets this counter.
         if (state.sustainedAirTicks == 0) state.sustainedAirStartY = from.getY();
         state.sustainedAirTicks++;
-        if (state.sustainedAirTicks > settings.sustainedAirTicksLimit) {
+        if (plugin.checkEnabled("air_sustained") && state.sustainedAirTicks > settings.sustainedAirTicksLimit) {
             if (state.sustainedAirStartY - to.getY() >= settings.sustainedAirMinDescent) {
                 state.sustainedAirTicks = 0;
                 state.sustainedAirStartY = to.getY();
@@ -1015,7 +1038,7 @@ public final class AntiFlyListener implements Listener {
             sendDebugActionBar(player, state, "AIR", horizontal, deltaY, settings.maxAirHorizontal, settings.maxAirVertical);
         }
 
-        if (player.isOnGround() && !state.lastServerOnGround) {
+        if (plugin.checkEnabled("ground_spoof") && player.isOnGround() && !state.lastServerOnGround) {
             // Client claims ground but server disagrees - only penalize if
             // the player is actually exceeding legitimate ground speeds.
             // This handles reduced-height blocks (beds, daylight detectors,
@@ -1035,7 +1058,7 @@ public final class AntiFlyListener implements Listener {
         // climbing higher than that ground would allow, is reporting support the
         // server cannot find. Sustained, that is a no-fall style spoof rather
         // than a one-off desync, so it is enforced instead of only buffered.
-        if (state.groundSpoofTicks > settings.groundSpoofTicksLimit) {
+        if (plugin.checkEnabled("ground_spoof") && state.groundSpoofTicks > settings.groundSpoofTicksLimit) {
             fail(player, state, "ground_spoof", state.groundSpoofTicks, settings.groundSpoofTicksLimit);
             return;
         }
@@ -1103,29 +1126,29 @@ public final class AntiFlyListener implements Listener {
             && state.airWindowDescent < 0.15
             && state.airWindowAscent < 0.15
             && horizontal >= 0.45;
-        if (sustainedFlatAir) {
+        if (plugin.checkEnabled("air_flat_cruise") && sustainedFlatAir) {
             fail(player, state, "air_flat_cruise", horizontal, 0.45);
             return;
         }
 
         double effectiveHorizontalBuffer = state.airHorizontalBuffer + state.groundSpoofBuffer;
-        if (effectiveHorizontalBuffer > settings.horizontalBufferLimit) {
+        if (plugin.checkEnabled("air_offset_horizontal") && effectiveHorizontalBuffer > settings.horizontalBufferLimit) {
             fail(player, state, "air_offset_horizontal", effectiveHorizontalBuffer, settings.horizontalBufferLimit);
             return;
         }
-        if (state.airVerticalBuffer > settings.verticalBufferLimit) {
+        if (plugin.checkEnabled("air_offset_vertical") && state.airVerticalBuffer > settings.verticalBufferLimit) {
             fail(player, state, "air_offset_vertical", state.airVerticalBuffer, settings.verticalBufferLimit);
             return;
         }
-        if (state.hoverBuffer > settings.hoverBufferLimit || state.hoverTicks > settings.hoverTicksLimit) {
+        if (plugin.checkEnabled("air_hover") && (state.hoverBuffer > settings.hoverBufferLimit || state.hoverTicks > settings.hoverTicksLimit)) {
             fail(player, state, "air_hover", state.hoverBuffer, settings.hoverBufferLimit);
             return;
         }
-        if (settings.noFallDetectionEnabled && state.airNonFallTicks > settings.airNonFallTicksLimit) {
+        if (plugin.checkEnabled("air_nonfall") && settings.noFallDetectionEnabled && state.airNonFallTicks > settings.airNonFallTicksLimit) {
             fail(player, state, "air_nonfall", state.airNonFallTicks, settings.airNonFallTicksLimit);
             return;
         }
-        if (settings.noFallDetectionEnabled && state.antiKickBuffer > 2.0) {
+        if (plugin.checkEnabled("air_antikick") && settings.noFallDetectionEnabled && state.antiKickBuffer > 2.0) {
             fail(player, state, "air_antikick", state.antiKickBuffer, 2.0);
         }
     }
@@ -1177,7 +1200,7 @@ public final class AntiFlyListener implements Listener {
             if (plugin.isDebug(player)) {
                 sendDebugActionBar(player, state, "BOAT", horizontal, to.getY() - from.getY(), maxAllowed, 0.0);
             }
-            if (horizontal > maxAllowed) {
+            if (plugin.checkEnabled("boat_speed") && horizontal > maxAllowed) {
                 rubberBandVehicle(player, state, "boat_speed", horizontal, maxAllowed);
                 return true;
             }
@@ -1202,15 +1225,16 @@ public final class AntiFlyListener implements Listener {
             Vector velocity = boat.getVelocity();
             double horizontalVelocity = Math.sqrt(velocity.getX() * velocity.getX() + velocity.getZ() * velocity.getZ());
             horizontal = Math.max(horizontal, horizontalVelocity);
-            if (horizontal > settings.boatMaxHorizontal) {
+            if (plugin.checkEnabled("boat_speed") && horizontal > settings.boatMaxHorizontal) {
                 rubberBandVehicle(player, state, "boat_speed", horizontal, settings.boatMaxHorizontal);
                 return true;
             }
-            if (deltaY > 0.02 || velocity.getY() > 0.05) {
+            if (plugin.checkEnabled("vehicle_flight") && settings.vehicleFlightEnabled && (deltaY > 0.02 || velocity.getY() > 0.05)) {
                 rubberBandVehicle(player, state, "vehicle_flight", Math.max(deltaY, velocity.getY()), 0.0);
                 return true;
             }
-            if (Math.abs(deltaY) <= 0.001 && Math.abs(velocity.getY()) <= 0.05) {
+            if (plugin.checkEnabled("vehicle_flight") && settings.vehicleFlightEnabled && Math.abs(deltaY) <= 0.001 && Math.abs(velocity.getY()) <= 0.05) {
+                debugIntervention(player, "boat_gravity", "vehicleFlightEnabled", deltaY, 0.0);
                 boat.setVelocity(new Vector(0.0, -0.08, 0.0));
                 state.vehicleAirTicks = 0;
                 return true;
@@ -1261,8 +1285,11 @@ public final class AntiFlyListener implements Listener {
             ? plugin.getSettings().horseAirGraceTicks : plugin.getSettings().vehicleAirGraceTicks;
         var result = state.mountMotion.sample(tick, horizontalDistance(prev, pos), pos.getY() - prev.getY(),
             isGhastMount(vehicle) || isMountSupported(vehicle), speed, Math.max(jump, aquatic ? 1.2 : camel ? 1.5 : jump), grace,
-            dash, aquatic ? 1.2 * movementAttribute : camel ? 22.2222 * movementAttribute : 0, camel ? 55 : 40, isTouchingBounceBlock(vehicle, pos));
-        if (result == com.antifly.common.MountMotion.Result.OK) return true;
+            dash, aquatic ? 1.2 * movementAttribute : camel ? 22.2222 * movementAttribute : 0, camel ? 55 : 40, isTouchingBounceBlock(vehicle, pos),
+            plugin.checkEnabled("vehicle_speed"), plugin.getSettings().vehicleFlightEnabled && plugin.checkEnabled("vehicle_flight"));
+        if (result == com.antifly.common.MountMotion.Result.OK
+            || (result == com.antifly.common.MountMotion.Result.FLIGHT && (!plugin.getSettings().vehicleFlightEnabled || !plugin.checkEnabled("vehicle_flight")))
+            || (result == com.antifly.common.MountMotion.Result.SPEED && !plugin.checkEnabled("vehicle_speed"))) return true;
         rubberBandVehicle(player, state, result == com.antifly.common.MountMotion.Result.SPEED
             ? "vehicle_speed" : "vehicle_flight",
             result == com.antifly.common.MountMotion.Result.SPEED ? horizontalDistance(prev, pos) : state.mountMotion.airborneTicks(),
@@ -1344,7 +1371,7 @@ public final class AntiFlyListener implements Listener {
         boolean postRocketBleed = !recentRocket && rocketAgeMs <= (settings.elytraBoostGraceTicks * 100L);
         boolean recentRiptide = player.isRiptiding();
 
-        if (!hasElytraEquipped(player)) {
+        if (plugin.checkEnabled("elytra_no_item") && !hasElytraEquipped(player)) {
             failElytra(player, state, "elytra_no_item", 1.0, 0.0);
             return false;
         }
@@ -1407,7 +1434,7 @@ public final class AntiFlyListener implements Listener {
                     com.antifly.common.ElytraPhysics.Verdict verdict =
                         state.elytraVerifier.observe(state.elytraInput, settings.elytraVerifierTuning);
                     if (verdict.actionable(settings.elytraVerifierTuning)) {
-                if (verifierMode == com.antifly.common.ElytraPhysics.Mode.ENFORCE) {
+                if (plugin.checkEnabled("elytra_physics") && verifierMode == com.antifly.common.ElytraPhysics.Mode.ENFORCE) {
                     failElytra(player, state, "elytra_physics_" + verdict.reason,
                         verdict.evidence, verdict.confidence);
                     return false;
@@ -1750,6 +1777,9 @@ public final class AntiFlyListener implements Listener {
 
     private void rubberBandVehicle(Player player, AntiFlyPlugin.PlayerState state, String reason,
                                    double actual, double allowed) {
+        if (isSetbackCoolingDown(state)) {
+            return;
+        }
         if (player.getVehicle() != null) {
             player.getVehicle().setVelocity(new Vector(0, 0, 0));
         }
@@ -1776,10 +1806,11 @@ public final class AntiFlyListener implements Listener {
         // A glide violation must suppress gliding, not merely end it once: the
         // hack's auto-deploy re-sends START_FALL_FLYING every tick, so a plain
         // stopFallFlying() would be undone before the next check runs.
-        state.glideSuppressTicks = plugin.getSettings().elytraGlideSuppressionTicks;
         if (isSetbackCoolingDown(state)) {
             return;
         }
+        state.glideSuppressTicks = plugin.getSettings().elytraGlideSuppressionTicks;
+        state.glideSuppressCheck = com.antifly.common.CheckNames.forReason(reason);
         player.setGliding(false);
 
         Location target = state.lastSupport != null ? state.lastSupport
@@ -1801,6 +1832,7 @@ public final class AntiFlyListener implements Listener {
 
     private void logViolation(Player player, AntiFlyPlugin.PlayerState state, String reason,
                               double actual, double allowed, Location location) {
+        debugIntervention(player, reason, settingKeyForReason(reason), actual, allowed);
         long now = System.currentTimeMillis();
         state.lastSetbackAtMs = now;
         // The running count is deliberately NOT cleared by a setback: a player
@@ -1850,7 +1882,8 @@ public final class AntiFlyListener implements Listener {
 
     private String settingKeyForReason(String reason) {
         return switch (reason) {
-            case "ground_speed" -> "groundWalkMax";
+            case "ground_speed", "ground_spoof_speed" -> "groundWalkMax";
+            case "air_teleport" -> "airTeleportDistance";
             case "water_speed" -> "waterMax";
             case "water_vertical" -> "waterVerticalMax";
             case "vehicle_speed" -> "groundMountedMax";
@@ -1858,11 +1891,11 @@ public final class AntiFlyListener implements Listener {
             case "ground_spoof" -> "groundSpoofTicksLimit";
             case "air_offset_horizontal" -> "horizontalBufferLimit/maxAirHorizontal";
             case "air_offset_vertical" -> "verticalBufferLimit/maxAirVertical";
-            case "air_hover" -> "hoverBufferLimit";
+            case "air_hover" -> "hoverBufferLimit/hoverTicksLimit/hoverStartTicks/hoverDeltaY";
             case "air_nonfall" -> "airNonFallTicksLimit";
             case "air_sustained" -> "sustainedAirTicksLimit";
             case "air_antikick" -> "antiKickWindowTicks/antiKickMinDescent";
-            case "vehicle_flight" -> "vehicleAirGraceTicks/boatAirGraceTicks/horseAirGraceTicks/vehicleFallTicksMax";
+            case "vehicle_flight" -> "vehicleFlightEnabled/vehicleAirGraceTicks/horseAirGraceTicks";
             case "air_flat_cruise" -> "antiKickWindowTicks";
             case "elytra_stall" -> "elytraStallTicks";
             case "elytra_rocket_speed" -> "elytraMaxRocketHorizontal";
@@ -1873,8 +1906,23 @@ public final class AntiFlyListener implements Listener {
             case "elytra_no_rocket_control_up" -> "elytraMaxNoRocketUp";
             case "elytra_motion", "elytra_durability_plus_motion" -> "elytraMovementBufferLimit";
             case "elytra_no_item" -> "elytraEnabled";
+            case "elytra_physics_physics_residual", "elytra_physics_energy_creation",
+                 "elytra_physics_constant_velocity", "elytra_physics_pitch_decoupled",
+                 "elytra_physics_impossible_turn" -> "elytraVerifierMode";
             default -> "-";
         };
+    }
+
+    private void debugIntervention(Player player, String reason, String setting, double actual, double allowed) {
+        String check = com.antifly.common.CheckNames.forReason(reason);
+        String control = com.antifly.common.CheckNames.valid(check) ? " check=" + check : "";
+        String message = String.format("[AntiFly debug] %s: %s%s tune=%s actual=%.3f allowed=%.3f",
+            player.getName(), reason, control, setting, actual, allowed);
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            if (plugin.isDebug(viewer)) {
+                PlatformCompat.runForPlayer(plugin, viewer, () -> viewer.sendMessage(message));
+            }
+        }
     }
 
     private void broadcastRepeatOffender(Player violator, AntiFlyPlugin.PlayerState state) {

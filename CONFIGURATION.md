@@ -1,6 +1,6 @@
 # AntiFly configuration
 
-Everything here is tunable on a running server. Nothing in this document requires a restart or a plugin update, and no setting needs to be edited by hand.
+Settings and individual checks can be changed on a running server. Older options that no longer affect enforcement remain in existing configuration files for compatibility, but are omitted from the live settings list and cannot be changed through `/antifly set`. Elytra enforcement uses `elytraVerifierMode` and the `elytraVerifier*` settings.
 
 ## Contents
 - [Config files](#config-files)
@@ -20,7 +20,7 @@ Everything here is tunable on a running server. Nothing in this document require
 - **Paper / Bukkit family:** `plugins/AntiFly/config.yml`
 - **Fabric:** `config/antifly.json`
 
-Both platforms expose the same concepts under the same key names, so a tuning guide found in Discord applies to either.
+Both platforms expose many of the same key names, but their checks differ. A setting available on both platforms may not affect the same checks; `/antifly set` and `/antifly check` list the controls available on the running platform.
 
 If you change a shipped default in code, existing installs keep their stored value. AntiFly versions its config and migrates old defaults forward automatically, but a key you have deliberately tuned is never overwritten.
 
@@ -39,6 +39,12 @@ Keys can be given in any of these forms:
 
 `/antifly set` with no arguments always reflects what the running server actually supports, so you never have to guess whether a key exists on your platform.
 
+## Individual checks and debugging
+
+Use `/antifly check` to list the active platform's checks and their state, `/antifly check <name>` to read one, and `/antifly check <name> off` or `on` to change it immediately and save it. For example, after a debug message names `vehicle_flight`, use `/antifly check vehicle_flight off` to stop that check while investigating; mounted speed remains checked. Checks can overlap, so another check can still correct the same movement. Existing `vehicleFlightEnabled`, `elytraEnabled`, `elytraVerifierMode`, `noFallDetectionEnabled`, `voidaccess`, world and global controls also apply.
+
+Enable `/antifly debug on` on an administrator account to receive intervention messages for players. Messages identify the player, reason, relevant check name when applicable, and tuning hints. Other interventions such as hunger, void protection and glide suppression name their controls. Turn debug off with `/antifly debug off`. Debug messages can be frequent on a busy server.
+
 ## Full command reference
 The command set is identical on Paper and Fabric. On Paper it requires op or `antifly.admin`; on Fabric it requires moderator-level permissions.
 
@@ -51,6 +57,7 @@ The command set is identical on Paper and Fabric. On Paper it requires op or `an
 | `/antifly voidaccess <on\|off>` | Allow or block void entry (default on) |
 | `/antifly reload` | Re-read the config from disk, no restart |
 | `/antifly set <key> [value]` | List, read or change any tuning key |
+| `/antifly check [name] [on\|off]` | List, inspect or toggle individual checks |
 | `/antifly alerts <off\|game\|console\|both>` | Where violation alerts are delivered |
 | `/antifly debug <on\|off>` | Verbose per-check output |
 | `/antifly exempt <player>` / `/antifly unexempt <player>` | Exempt a player from every check, or undo it |
@@ -75,19 +82,18 @@ Defaults in brackets.
 - `repeatOffenderAlertCount` is how many checks a player may trip within 5 minutes before staff get a follow-up warning. Setbacks deliberately do not clear this count, so someone who is corrected and immediately continues is distinguishable from a one-off lag spike. The value is clamped to a minimum of `1`.
 
 ## Vehicle fall
-`vehicleFallMinDescent` (-0.04) · `vehicleFallMaxHorizontal` (0.40) · `vehicleFallTicksMax` (60)
+Vehicles are scored on their own movement. A boat that is afloat or resting on support is exempt from the airborne boat check. Mounted speed uses `groundMountedMax` and the mount's server attributes. Unsupported mounts must follow a falling trajectory after their jump grace; nautiluses and camel husks use `horseAirGraceTicks`. The legacy `vehicleFall*` settings remain in old config files, but no longer control the trajectory check.
 
-Vehicles are scored on their own movement, and a rider is never judged on the seat snap, release bump or wave bob. A boat that is genuinely afloat or resting on support is exempt. A grounded or submerged mount is supported; mounted speed is checked separately using `groundMountedMax` and the mount's server attributes. Camel and nautilus dash allowances decay and require a fresh dash with its cooldown. Unsupported mounts must follow a falling trajectory after their jump grace; shallow descent cannot reset that window. Nautiluses and camel husks use `horseAirGraceTicks`. The legacy `vehicleFall*` settings remain readable for config compatibility; mounted fall validation now uses the trajectory check rather than the old descent/time budget.
+`/antifly set vehicleFlightEnabled 0` disables mounted flight setbacks and forced boat descent while retaining mounted speed checks; set it to `1` to restore them. On Paper, `airTeleportDistance` controls the unsupported position-jump threshold in blocks; set it to `0` to disable that check.
+
+Administrators using `/antifly debug on` receive intervention messages for other players, with the check name, suggested setting, actual value and limit. Void redirects, void damage and forced boat descent are also reported. Existing movement sampling remains available for the player with debug enabled.
 
 ## Elytra
 The Elytra verifier samples accepted movement once per server tick and predicts the next unpowered glide step from pitch, yaw, and prior velocity. It accumulates residual motion, excess energy relative to that prediction, unnaturally constant speed, and sharp turning. It only acts when multiple channels agree. Rocket boosts, Riptide, server velocity events (Paper), damage impulses (Fabric), relevant potion effects, and collisions reset or pause the model.
 
-Older speed and altitude counters remain available for debugging and server tuning but no longer stop a glide on their own; powerful rockets are not subject to a fixed Elytra speed cap.
+Older speed and altitude counters do not stop a glide on their own; powerful rockets are not subject to a fixed Elytra speed cap.
 
-- `elytraMaxHorizontal` / `elytraNoRocketSustainableHorizontal` / `elytraMaxRocketHorizontal`
-- `elytraMaxUp` / `elytraMaxNoRocketUp` / `elytraMaxRocketUp`
-- `elytraEnabled` · `elytraBoostGraceTicks` · `elytraStallTicks` · `elytraMovementBufferLimit`
-- `elytraNoRocketMaxAscent` (6.0; legacy diagnostic) · `elytraGlideSuppressionTicks` (60)
+- `elytraEnabled` · `elytraBoostGraceTicks` · `elytraGlideSuppressionTicks` (60)
 - `elytraVerifierMode` (`enforce`, `observe`, or `off`)
 - `elytraVerifierGravity` · `elytraVerifierResidualAllowance` · `elytraVerifierResidualPerSpeed` · `elytraVerifierEnergyAllowance` · `elytraVerifierSteadySpeedDeviation` · `elytraVerifierMinimumSteadySpeed` · `elytraVerifierSteadyWindowTicks` · `elytraVerifierEvidenceWindowTicks` · `elytraVerifierMinimumEvidenceTicks` · `elytraVerifierMinimumChannels` · `elytraVerifierConfidenceThreshold` · `elytraVerifierSharpTurnDegrees`
 
@@ -100,8 +106,7 @@ The predictor matches the glide coefficients in Minecraft 1.21.11 through 26.3; 
 Catching a hack is useless if the client just re-enables flight. A hacked client re-sends `START_FALL_FLYING` on the very next tick, which would undo a one-shot stop. Every elytra violation therefore starts a `elytraGlideSuppressionTicks` window (default 60 ticks / 3s) during which gliding is refused outright - on Paper the toggle event is cancelled, and on Fabric the glider is stopped every tick until the window expires.
 
 ### Notes on vanilla elytra
-- Checks only block what vanilla cannot do: sustained speed beyond ~6 b/t, instant climbs beyond ~4 b/t, and stall-hovering. Steep dives, pull-ups, rocket boosts and crashing into obstacles are all allowed.
-- Repeated ground-flag spoofing cannot refresh landing grace; sustained flat-air movement is blocked after 20 air ticks at 0.45 b/t.
+- The verifier requires multiple physics signals before enforcing. Steep dives, pull-ups, rocket boosts and collisions are intended to be allowed, but custom server physics may need different settings.
 
 ## Hunger Mode settings
 - `hungerModeMaxBlocksPerSecond` (200) · `hungerModeHungerPerSecondAtMaxSpeed` (10) · `hungerModeRocketGraceTicks` (80) · `hungerModeAirborneMinimumBlocksPerSecond` (20)
@@ -128,7 +133,7 @@ Behaviour:
 ## Platform differences
 Most tuning keys exist on both platforms. The `/antifly set` list always reflects what the running server actually supports.
 
-**Paper only:** `hoverHorizontal` · `elytraToggleGraceTicks` · `elytraStallHorizontalMax` · `elytraStallVerticalMax` · `elytraNoRocketWindowTicks` · `elytraNoRocketMinDescent` · `elytraDurabilityCheckEnabled` · `elytraDurabilityBaseWindowTicks` · `elytraDurabilityUnbreakingMultiplier` · `elytraDurabilitySuspicionLimit` · `elytraRequireMovementSuspicionForDurabilityPunish`
+**Paper only:** `airTeleportDistance` and some Elytra diagnostic settings. Check `/antifly set` for the current list.
 
 **Fabric only:** `voidFallTicks`
 

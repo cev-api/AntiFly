@@ -16,11 +16,15 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
 public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
-    private static final List<String> ROOT = List.of("help", "enable", "disable", "hungermode", "voidaccess", "reload", "status", "alerts", "debug", "exempt", "unexempt", "disabledworlds", "set", "reset");
+    private static final List<String> ROOT = List.of("help", "enable", "disable", "hungermode", "voidaccess", "reload", "status", "alerts", "debug", "exempt", "unexempt", "disabledworlds", "set", "check", "reset");
+    private static final Set<String> INACTIVE_SETTINGS = Set.of(
+        "boatAirGraceTicks", "hoverHorizontal", "vehicleFallMinDescent", "vehicleFallMaxHorizontal", "vehicleFallTicksMax",
+        "elytraDurabilitySuspicionLimit", "elytraRequireMovementSuspicionForDurabilityPunish",
+        "elytraStallTicks", "elytraMovementBufferLimit", "elytraNoRocketMaxAscent", "elytraSustainedClimbTicksLimit");
     private static final List<String> SET_KEYS = List.of(
         "groundWalkMax", "groundMountedMax", "waterMax", "waterVerticalMax", "boatMaxHorizontal",
-        "airGraceTicks", "maxAirHorizontal", "maxAirVertical", "hoverStartTicks", "hoverTicksLimit", "hoverDeltaY", "hoverHorizontal",
-        "airNonFallTicksLimit", "antiKickWindowTicks", "antiKickMinDescent", "vehicleAirGraceTicks", "boatAirGraceTicks", "horseAirGraceTicks",
+        "airGraceTicks", "airTeleportDistance", "maxAirHorizontal", "maxAirVertical", "hoverStartTicks", "hoverTicksLimit", "hoverDeltaY", "hoverHorizontal",
+        "airNonFallTicksLimit", "antiKickWindowTicks", "antiKickMinDescent", "vehicleFlightEnabled", "vehicleAirGraceTicks", "boatAirGraceTicks", "horseAirGraceTicks",
         "horizontalBufferLimit", "verticalBufferLimit", "hoverBufferLimit", "bufferDecay", "setbackCooldownMs", "noFallDetectionEnabled", "sustainedAirTicksLimit", "sustainedAirMinDescent",
         "impulseGraceTicks", "groundSpoofTicksLimit", "repeatOffenderAlertCount",
         "vehicleFallMinDescent", "vehicleFallMaxHorizontal", "vehicleFallTicksMax",
@@ -38,7 +42,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         "elytraVerifierMinimumChannels", "elytraVerifierConfidenceThreshold", "elytraVerifierSharpTurnDegrees",
         "elytraDurabilityCheckEnabled", "elytraDurabilityBaseWindowTicks", "elytraDurabilityUnbreakingMultiplier", "elytraDurabilitySuspicionLimit",
         "elytraRequireMovementSuspicionForDurabilityPunish"
-    );    private final AntiFlyPlugin plugin;
+    ).stream().filter(key -> !INACTIVE_SETTINGS.contains(key)).toList();
+    private final AntiFlyPlugin plugin;
 
     public AntiFlyCommand(AntiFlyPlugin plugin) {
         this.plugin = plugin;
@@ -57,6 +62,30 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
 
         String sub = args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
+            case "check" -> {
+                if (args.length == 1) {
+                    for (String name : com.antifly.common.CheckNames.PAPER)
+                        sender.sendMessage(ChatColor.GRAY + name + " = " + (plugin.checkEnabled(name) ? "on" : "off"));
+                    return true;
+                }
+                String name = args[1].toLowerCase(Locale.ROOT);
+                if (!com.antifly.common.CheckNames.PAPER.contains(name)) {
+                    sender.sendMessage(ChatColor.RED + "Unknown check. Use /antifly check to list checks.");
+                    return true;
+                }
+                if (args.length == 2) {
+                    sender.sendMessage(ChatColor.YELLOW + name + " = " + (plugin.checkEnabled(name) ? "on" : "off"));
+                    return true;
+                }
+                if (!args[2].equalsIgnoreCase("on") && !args[2].equalsIgnoreCase("off")) {
+                    sender.sendMessage(ChatColor.RED + "Usage: /antifly check <name> <on|off>");
+                    return true;
+                }
+                boolean enabled = args[2].equalsIgnoreCase("on");
+                plugin.setCheckEnabled(name, enabled);
+                sender.sendMessage(ChatColor.GREEN + name + " is " + (enabled ? "on" : "off"));
+                return true;
+            }
             case "help" -> {
                 sender.sendMessage(ChatColor.GOLD + "AntiFly Help");
                 sender.sendMessage(ChatColor.AQUA + "Control");
@@ -77,6 +106,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly set");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly set <key>");
                 sender.sendMessage(ChatColor.YELLOW + "  /antifly set <key> <value>");
+                sender.sendMessage(ChatColor.YELLOW + "  /antifly check [name] [on|off]");
                 sender.sendMessage(ChatColor.DARK_GRAY + "Tip: use /antifly set to list all keys.");
                 return true;
             }
@@ -216,6 +246,10 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                 }
                 if (args.length == 2) {
                     String key = canonicalSettingKey(args[1]);
+                    if (INACTIVE_SETTINGS.contains(key)) {
+                        sender.sendMessage(ChatColor.RED + "This legacy setting no longer affects enforcement.");
+                        return true;
+                    }
                     String value = formatSettingValue(plugin.getSettings(), key);
                     if (value == null) {
                         sender.sendMessage(ChatColor.RED + "Unknown key.");
@@ -229,6 +263,10 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
                 String key = canonicalSettingKey(args[1]);
+                if (INACTIVE_SETTINGS.contains(key)) {
+                    sender.sendMessage(ChatColor.RED + "This legacy setting no longer affects enforcement. Use /antifly check and /antifly set to see active controls.");
+                    return true;
+                }
                 if (key.equals("elytraVerifierMode")) {
                     String mode = args[2].toLowerCase(Locale.ROOT);
                     if (!mode.equals("off") && !mode.equals("observe") && !mode.equals("enforce")) {
@@ -244,6 +282,10 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
                     value = Double.parseDouble(args[2]);
                 } catch (NumberFormatException ex) {
                     sender.sendMessage(ChatColor.RED + "Value must be a number.");
+                    return true;
+                }
+                if (!Double.isFinite(value)) {
+                    sender.sendMessage(ChatColor.RED + "Value must be finite.");
                     return true;
                 }
                 if (!plugin.updateSetting(key, value)) {
@@ -325,6 +367,8 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
             return filter(SET_KEYS, args[1]);
         }
+        if (args.length == 2 && args[0].equalsIgnoreCase("check")) return filter(com.antifly.common.CheckNames.PAPER, args[1]);
+        if (args.length == 3 && args[0].equalsIgnoreCase("check")) return filter(List.of("on", "off"), args[2]);
         return List.of();
     }
 
@@ -417,6 +461,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "waterVerticalMax" -> String.valueOf(s.waterVerticalMax);
             case "boatMaxHorizontal" -> String.valueOf(s.boatMaxHorizontal);
             case "maxAirHorizontal" -> String.valueOf(s.maxAirHorizontal);
+            case "airTeleportDistance" -> String.valueOf(s.airTeleportDistance);
             case "maxAirVertical" -> String.valueOf(s.maxAirVertical);
             case "bufferDecay" -> String.valueOf(s.bufferDecay);
             case "horizontalBufferLimit" -> String.valueOf(s.horizontalBufferLimit);
@@ -430,6 +475,7 @@ public final class AntiFlyCommand implements CommandExecutor, TabCompleter {
             case "antiKickMinDescent" -> String.valueOf(s.antiKickMinDescent);
             case "setbackCooldownMs" -> String.valueOf(s.setbackCooldownMs);
             case "vehicleAirGraceTicks" -> String.valueOf(s.vehicleAirGraceTicks);
+            case "vehicleFlightEnabled" -> String.valueOf(s.vehicleFlightEnabled);
             case "boatAirGraceTicks" -> String.valueOf(s.boatAirGraceTicks);
             case "horseAirGraceTicks" -> String.valueOf(s.horseAirGraceTicks);
             case "elytraEnabled" -> String.valueOf(s.elytraEnabled);

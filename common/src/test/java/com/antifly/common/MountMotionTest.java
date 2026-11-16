@@ -4,6 +4,28 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MountMotionTest {
+    @Test void disablingSpeedDoesNotMaskFlight() {
+        MountMotion guard = new MountMotion();
+        MountMotion.Result result = MountMotion.Result.OK;
+        for (int t = 0; t < 40; t++) {
+            result = guard.sample(t, 4, 0, false, 0.75, 1, 24, false, 0, 40, false, false, true);
+            if (result == MountMotion.Result.FLIGHT) break;
+        }
+        assertEquals(MountMotion.Result.FLIGHT, result);
+    }
+
+    @Test void disablingFlightKeepsSpeedChecksAndClearsStaleEvidence() {
+        MountMotion guard = new MountMotion();
+        for (int t = 0; t < 100; t++) {
+            assertEquals(MountMotion.Result.OK,
+                guard.sample(t, 0, 0, false, 0.75, 1, 24, false, 0, 40, false, true, false));
+        }
+        assertEquals(MountMotion.Result.OK,
+            guard.sample(100, 0, 0, false, 0.75, 1, 24, false, 0, 40, false, true, true));
+        assertEquals(MountMotion.Result.SPEED,
+            guard.sample(101, 4, 0, false, 0.75, 1, 24, false, 0, 40, false, true, false));
+    }
+
     private MountMotion.Result sample(MountMotion guard, int tick, double x, double y, boolean support) {
         return guard.sample(tick, x, y, support, 0.75, 1.0, 24, false, 0, 40);
     }

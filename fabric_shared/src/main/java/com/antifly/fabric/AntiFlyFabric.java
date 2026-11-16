@@ -140,6 +140,7 @@ public final class AntiFlyFabric implements ModInitializer {
         source.sendSuccess(() -> Component.literal("  /antifly reload").withStyle(ChatFormatting.YELLOW), false);
         source.sendSuccess(() -> Component.literal("  /antifly disabledworlds <worldName> <true|false>").withStyle(ChatFormatting.YELLOW), false);
         source.sendSuccess(() -> Component.literal("  /antifly set <key> <value>").withStyle(ChatFormatting.YELLOW), false);
+        source.sendSuccess(() -> Component.literal("  /antifly check [name] [on|off]").withStyle(ChatFormatting.YELLOW), false);
     }
     private void sendStatus(net.minecraft.commands.CommandSourceStack source) {
         source.sendSuccess(() -> header("AntiFly Status"), false);
@@ -287,6 +288,18 @@ public final class AntiFlyFabric implements ModInitializer {
                         ctx.getSource().sendFailure(Component.literal("Usage: /antifly disabledworlds <worldName> <true|false>"));
                         return 0;
                     }))
+                .then(Commands.literal("check")
+                    .executes(ctx -> {
+                        for (String name : com.antifly.common.CheckNames.FABRIC) {
+                            ctx.getSource().sendSuccess(() -> Component.literal(name + " = " + (checkEnabled(name) ? "on" : "off")), false);
+                        }
+                        return 1;
+                    })
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests((ctx, builder) -> net.minecraft.commands.SharedSuggestionProvider.suggest(com.antifly.common.CheckNames.FABRIC, builder))
+                        .executes(ctx -> showCheck(ctx.getSource(), StringArgumentType.getString(ctx, "name")))
+                        .then(Commands.literal("on").executes(ctx -> setCheck(ctx.getSource(), StringArgumentType.getString(ctx, "name"), true)))
+                        .then(Commands.literal("off").executes(ctx -> setCheck(ctx.getSource(), StringArgumentType.getString(ctx, "name"), false)))))
                 .then(Commands.literal("reset")
                     .then(Commands.argument("player", EntityArgument.player())
                         .executes(ctx -> {
@@ -516,6 +529,7 @@ public final class AntiFlyFabric implements ModInitializer {
                                 dmg *= 2.0f;
                             }
                             if (dmg > 0.0f) {
+                                debugIntervention(player, "flight_damage", "hungerModeFlightDamageEnabled/hungerModeFlightDamagePerSecond", dmg, 0.0);
                                 player.hurt(player.damageSources().generic(), dmg);
                             }
                         }
@@ -539,6 +553,7 @@ public final class AntiFlyFabric implements ModInitializer {
         // Apply at most one food point per tick. Any remaining debt carries
         // forward, producing continuous loss instead of a bulk update.
         if (state.hungerDebt >= 1.0 && player.getFoodData().getFoodLevel() > 0) {
+            debugIntervention(player, "flight_hunger", "hungermode/hungerModeHungerPerSecondAtMaxSpeed", 1.0, 0.0);
             player.getFoodData().setFoodLevel(player.getFoodData().getFoodLevel() - 1);
             state.hungerDebt -= 1.0;
         }
@@ -556,7 +571,7 @@ public final class AntiFlyFabric implements ModInitializer {
         Vec3 pos = player.position();
         boolean enforcementEnabled = config.enabled && !isWorldDisabled(player.level());
 
-        if (enforcementEnabled && !config.voidAccess && player.isAlive()) {
+        if (enforcementEnabled && !exempt.contains(player.getUUID()) && !config.voidAccess && player.isAlive()) {
             if (isForbiddenVoid(player, pos)) {
                 if (config.hungerModeEnabled) {
                     // Hunger Mode: the zone is allowed but costs health directly
@@ -575,6 +590,7 @@ public final class AntiFlyFabric implements ModInitializer {
                     : getServerLevel(player).getServer().overworld();
                 Vec3 target = state.lastVoidSafe != null ? state.lastVoidSafe
                     : Vec3.atBottomCenterOf(targetLevel.getRespawnData().pos()).add(0, 1, 0);
+                debugIntervention(player, "void_redirect", "voidaccess", 0.0, 0.0);
                 if (player.getVehicle() != null) {
                     Entity vehicle = player.getVehicle();
                     player.stopRiding();
@@ -605,8 +621,9 @@ public final class AntiFlyFabric implements ModInitializer {
         // A vanilla survival client cannot enable flight without the server
         // granting the ability, so anything else is a hacked client asking to
         // fly. Clearing it here stops the exploit before it moves at all.
-        if (enforcementEnabled && player.getAbilities().flying && !player.getAbilities().mayfly
+        if (checkEnabled("flight_toggle") && enforcementEnabled && player.getAbilities().flying && !player.getAbilities().mayfly
             && !player.isCreative() && !player.isSpectator() && !exempt.contains(player.getUUID())) {
+            debugIntervention(player, "flight_toggle", "check flight_toggle", 1.0, 0.0);
             player.getAbilities().flying = false;
             player.onUpdateAbilities();
         }
@@ -796,7 +813,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 double maxAllowed = config.boatMaxHorizontal;
                 sendDebugActionBar(player, state, "BOAT", horizontal,
                     pos.y - (state.lastPos != null ? state.lastPos.y : pos.y), maxAllowed, 0.0);
-                if (horizontal > maxAllowed) {
+                if (checkEnabled("boat_speed") && horizontal > maxAllowed) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                     rubberBandVehicle(player, state, target, "boat_speed", horizontal, maxAllowed);
                 } else {
@@ -832,21 +849,22 @@ public final class AntiFlyFabric implements ModInitializer {
             horizontal = Math.max(horizontal, Math.sqrt(vel.x * vel.x + vel.z * vel.z));
             state.lastVehiclePos = vehicle.position();
             if (vehicle instanceof Boat boat) {
-                if (horizontal > config.boatMaxHorizontal) {
+                if (checkEnabled("boat_speed") && horizontal > config.boatMaxHorizontal) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                     rubberBandVehicle(player, state, target, "boat_speed", horizontal, config.boatMaxHorizontal);
                     state.lastPos = pos;
                     state.wasGliding = false;
                     return;
                 }
-                if (deltaY > 0.02 || vel.y > 0.05) {
+                if (checkEnabled("vehicle_flight") && config.vehicleFlightEnabled && (deltaY > 0.02 || vel.y > 0.05)) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                     rubberBandVehicle(player, state, target, "vehicle_flight", Math.max(deltaY, vel.y), 0.0);
                     state.lastPos = pos;
                     state.wasGliding = false;
                     return;
                 }
-                if (Math.abs(deltaY) <= 0.001 && Math.abs(vel.y) <= 0.05) {
+                if (checkEnabled("vehicle_flight") && config.vehicleFlightEnabled && Math.abs(deltaY) <= 0.001 && Math.abs(vel.y) <= 0.05) {
+                    debugIntervention(player, "boat_gravity", "vehicleFlightEnabled", deltaY, 0.0);
                     boat.setDeltaMovement(0.0, -0.08, 0.0);
                 }
                 state.lastPos = pos;
@@ -876,9 +894,11 @@ public final class AntiFlyFabric implements ModInitializer {
         // A glide violation must suppress gliding for a while, not just end it
         // once: the hack's auto-deploy re-sends START_FALL_FLYING every tick, so
         // a one-shot stopFallFlying() would be undone before the next check.
+        if (state.glideSuppressTicks > 0 && !checkEnabled(state.glideSuppressCheck)) state.glideSuppressTicks = 0;
         if (state.glideSuppressTicks > 0) {
             state.glideSuppressTicks--;
             if (player.isFallFlying()) {
+                debugIntervention(player, "elytra_suppression", "elytraGlideSuppressionTicks", state.glideSuppressTicks, 0.0);
                 player.stopFallFlying();
                 resetTransientState(state);
                 state.lastPos = pos;
@@ -924,7 +944,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 // keeps elytra momentum for a tick or two and the client often
                 // still reports airborne across that boundary, so this respects
                 // the same landing grace the ground-speed check below uses.
-                if (state.glideGroundGraceTicks <= 0
+                if (checkEnabled("ground_spoof_speed") && state.glideGroundGraceTicks <= 0
                     && !clientOnGround && horizontal > maxAllowed) {
                     Vec3 target = state.lastGroundPos != null ? state.lastGroundPos : pos;
                     rubberBand(player, state, target, "ground_spoof_speed", horizontal, maxAllowed);
@@ -932,7 +952,7 @@ public final class AntiFlyFabric implements ModInitializer {
                     state.wasGliding = false;
                     return;
                 }
-                if (state.glideGroundGraceTicks <= 0 && state.lastServerOnGround && horizontal > maxAllowed) {
+                if (checkEnabled("ground_speed") && state.glideGroundGraceTicks <= 0 && state.lastServerOnGround && horizontal > maxAllowed) {
                     Vec3 target = state.lastGroundPos != null ? state.lastGroundPos : pos;
                     rubberBand(player, state, target, "ground_speed", horizontal, maxAllowed);
                     state.lastPos = pos;
@@ -951,14 +971,14 @@ public final class AntiFlyFabric implements ModInitializer {
             deltaY = Math.max(deltaY, vel.y);
             double maxUp = Math.max(maxWaterVertical(player), vel.y + 0.05);
             sendDebugActionBar(player, state, "FLUID", horizontal, deltaY, maxAllowed, maxUp);
-            if (horizontal > maxAllowed) {
+            if (checkEnabled("water_speed") && horizontal > maxAllowed) {
                 Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                 rubberBand(player, state, target, "water_speed", horizontal, maxAllowed);
                 state.lastPos = pos;
                 state.wasGliding = false;
                 return;
             }
-            if (deltaY > maxUp) {
+            if (checkEnabled("water_vertical") && deltaY > maxUp) {
                 Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                 rubberBand(player, state, target, "water_vertical", deltaY, maxUp);
                 state.lastPos = pos;
@@ -967,6 +987,11 @@ public final class AntiFlyFabric implements ModInitializer {
             }
             updateSupport(state, false, true, pos);
         } else if (!inFluid) {
+            if (!checkEnabled("ground_spoof")) state.groundSpoofTicks = 0;
+            if (!checkEnabled("air_hover")) state.hoverTicks = 0;
+            if (!checkEnabled("air_time")) state.airNonFallTicks = 0;
+            if (!checkEnabled("air_sustained")) state.sustainedAirTicks = 0;
+            if (!checkEnabled("void_fall")) state.voidTicks = 0;
             state.airTicks++;
             boolean graceAir = state.airTicks <= config.airGraceTicks || state.glideGroundGraceTicks > 0;
             double horizontal = 0.0;
@@ -975,7 +1000,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 Vec3 vel = player.getDeltaMovement();
                 horizontal = Math.max(horizontalDistance(state.lastPos, pos), Math.sqrt(vel.x * vel.x + vel.z * vel.z));
                 maxAllowed = Math.max(maxAllowed, Math.hypot(vel.x, vel.z) + 0.05);
-                if (!graceAir && horizontal > maxAllowed) {
+                if (checkEnabled("air_speed") && !graceAir && horizontal > maxAllowed) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                     rubberBand(player, state, target, "air_speed", horizontal, maxAllowed);
                     state.lastPos = pos;
@@ -990,7 +1015,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 : Math.sqrt(vel.x * vel.x + vel.z * vel.z);
             double maxUp = Math.max(maxAirVertical(player), vel.y + 0.05);
             sendDebugActionBar(player, state, "AIR", horizontal, deltaY, maxAllowed, maxUp);
-            if (!rebound && !graceAir && deltaY > maxUp) {
+            if (checkEnabled("air_vertical") && !rebound && !graceAir && deltaY > maxUp) {
                 Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                 rubberBand(player, state, target, "air_vertical", deltaY, maxUp);
                 state.lastPos = pos;
@@ -1009,7 +1034,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 double maxGroundSpoofSpeed = maxGroundSpeed(player) + 0.05;
                 if (horizontal > maxGroundSpoofSpeed || deltaY > 0.08) {
                     state.groundSpoofTicks++;
-                    if (state.groundSpoofTicks > config.groundSpoofTicksLimit) {
+                    if (checkEnabled("ground_spoof") && state.groundSpoofTicks > config.groundSpoofTicksLimit) {
                         Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                         rubberBand(player, state, target, "ground_spoof", state.groundSpoofTicks, config.groundSpoofTicksLimit);
                         state.lastPos = pos;
@@ -1028,7 +1053,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 && Math.abs(deltaY) <= config.hoverDeltaY;
             if (hoveringStill) {
                 state.hoverTicks++;
-                if (state.hoverTicks > config.hoverTicksLimit) {
+                if (checkEnabled("air_hover") && state.hoverTicks > config.hoverTicksLimit) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                     rubberBand(player, state, target, "air_hover", deltaY, 0.0);
                     state.lastPos = pos;
@@ -1040,7 +1065,7 @@ public final class AntiFlyFabric implements ModInitializer {
             }
             if (!rebound && config.noFallDetectionEnabled && !serverOnGround && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
                 state.airNonFallTicks++;
-                if (state.airNonFallTicks > config.airNonFallTicks) {
+                if (checkEnabled("air_time") && state.airNonFallTicks > config.airNonFallTicks) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                     rubberBand(player, state, target, "air_time", state.airNonFallTicks, config.airNonFallTicks);
                     state.lastPos = pos;
@@ -1058,7 +1083,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 && state.airSessionTicks >= Math.max(1, (int) Math.round(config.antiKickWindowTicks * 0.3))
                 && state.airSessionDescent < Math.max(0.15, config.antiKickMinDescent)
                 && horizontal >= 0.45;
-            if (sustainedAirPlane) {
+            if (checkEnabled("air_plane") && sustainedAirPlane) {
                 Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                 rubberBand(player, state, target, "air_plane", state.airSessionDescent, config.antiKickMinDescent);
                 state.lastPos = pos;
@@ -1066,7 +1091,7 @@ public final class AntiFlyFabric implements ModInitializer {
                 return;
             }
             if (config.noFallDetectionEnabled && state.airSessionTicks >= config.antiKickWindowTicks) {
-                if (state.airSessionDescent < config.antiKickMinDescent) {
+                if (checkEnabled("air_antikick") && state.airSessionDescent < config.antiKickMinDescent) {
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : pos;
                     rubberBand(player, state, target, "air_antikick", state.airSessionDescent, config.antiKickMinDescent);
                     state.lastPos = pos;
@@ -1083,7 +1108,7 @@ public final class AntiFlyFabric implements ModInitializer {
             if (isVoidBelow(player) && !serverOnGround && !inFluid
                 && deltaY >= AntiFlyConstants.AIR_DESCENT_EPSILON) {
                 state.voidTicks++;
-                if (state.voidTicks > config.voidFallTicks) {
+                if (checkEnabled("void_fall") && state.voidTicks > config.voidFallTicks) {
                     Vec3 fallback = Vec3.atCenterOf(player.blockPosition());
                     Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : fallback;
                     rubberBand(player, state, target, "void_fall", 0.0, 0.0);
@@ -1100,7 +1125,7 @@ public final class AntiFlyFabric implements ModInitializer {
             // speed, vertical, hover and no-fall checks by cruising under the
             // caps and resetting the descent counter on each bob. Only landing
             // (or fluid/vehicle support) resets this counter.
-            if (state.sustainedAirTicks > config.sustainedAirTicksLimit) {
+            if (checkEnabled("air_sustained") && state.sustainedAirTicks > config.sustainedAirTicksLimit) {
                 if (state.sustainedAirStartY - pos.y >= config.sustainedAirMinDescent) {
                     state.sustainedAirTicks = 0;
                     state.sustainedAirStartY = pos.y;
@@ -1298,7 +1323,7 @@ public final class AntiFlyFabric implements ModInitializer {
             com.antifly.common.ElytraPhysics.Verdict verdict =
                 state.elytraVerifier.observe(state.elytraInput, config.elytraVerifierTuning);
             if (verdict.actionable(config.elytraVerifierTuning)) {
-                if (verifierMode == com.antifly.common.ElytraPhysics.Mode.ENFORCE) {
+                if (checkEnabled("elytra_physics") && verifierMode == com.antifly.common.ElytraPhysics.Mode.ENFORCE) {
                     return failGlide(player, state, pos,
                         "elytra_physics_" + verdict.reason, verdict.evidence, verdict.confidence);
                 }
@@ -1372,6 +1397,7 @@ public final class AntiFlyFabric implements ModInitializer {
         rubberBand(player, state, target, reason, actual, allowed);
         player.stopFallFlying();
         state.glideSuppressTicks = config.elytraGlideSuppressionTicks;
+        state.glideSuppressCheck = com.antifly.common.CheckNames.forReason(reason);
         return false;
     }
 
@@ -1483,6 +1509,7 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private void rubberBand(ServerPlayer player, PlayerState state, Vec3 target, String reason,
                             double actual, double allowed) {
+        debugIntervention(player, reason, settingKeyForReason(reason), actual, allowed);
         long now = System.currentTimeMillis();
         // The running count is deliberately NOT cleared by a setback: a player
         // who is corrected and immediately carries on should look different
@@ -1586,7 +1613,7 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private String settingKeyForReason(String reason) {
         return switch (reason) {
-            case "ground_speed" -> "groundWalkMax";
+            case "ground_speed", "ground_spoof_speed" -> "groundWalkMax";
             case "water_speed" -> "waterMax";
             case "water_vertical" -> "waterVerticalMax";
             case "ground_spoof" -> "groundSpoofTicksLimit";
@@ -1594,18 +1621,18 @@ public final class AntiFlyFabric implements ModInitializer {
             case "boat_speed" -> "boatMaxHorizontal";
             case "air_speed" -> "maxAirHorizontal";
             case "air_vertical" -> "maxAirVertical";
-            case "air_hover" -> "hoverBufferLimit";
+            case "air_hover" -> "hoverStartTicks/hoverTicksLimit/hoverDeltaY";
             case "air_time" -> "airNonFallTicksLimit";
             case "air_sustained" -> "sustainedAirTicksLimit";
             case "air_antikick" -> "antiKickWindowTicks/antiKickMinDescent";
-            case "air_plane" -> "airNonFallTicksLimit/antiKickMinDescent";
+            case "air_plane" -> "antiKickWindowTicks/antiKickMinDescent";
             case "void_fall" -> "voidFallTicks";
-            case "vehicle_flight" -> "vehicleAirGraceTicks/boatAirGraceTicks/horseAirGraceTicks";
+            case "vehicle_flight" -> "vehicleFlightEnabled/vehicleAirGraceTicks/horseAirGraceTicks";
             case "elytra_speed" -> "elytraMaxHorizontal/elytraNoRocketSustainableHorizontal";
             case "elytra_up" -> "elytraMaxUp/elytraMaxNoRocketUp";
             case "elytra_no_rocket_climb" -> "elytraNoRocketMaxAscent";
             case "elytra_no_rocket_climb_sustained" -> "elytraSustainedClimbTicksLimit";
-            case "elytra_physics_residual" -> "elytraVerifierMode";
+            case "elytra_physics_physics_residual" -> "elytraVerifierMode";
             case "elytra_physics_energy_creation" -> "elytraVerifierMode";
             case "elytra_physics_constant_velocity" -> "elytraVerifierMode";
             case "elytra_physics_pitch_decoupled" -> "elytraVerifierMode";
@@ -1662,6 +1689,40 @@ public final class AntiFlyFabric implements ModInitializer {
 
     private boolean isDebug(ServerPlayer player) {
         return debug.contains(player.getUUID());
+    }
+
+    private boolean checkEnabled(String name) {
+        return !config.disabledChecks.contains(com.antifly.common.CheckNames.forReason(name));
+    }
+
+    private int showCheck(net.minecraft.commands.CommandSourceStack source, String name) {
+        if (!com.antifly.common.CheckNames.FABRIC.contains(name)) {
+            source.sendFailure(Component.literal("Unknown check. Use /antifly check to list checks."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal(name + " = " + (checkEnabled(name) ? "on" : "off")), false);
+        return 1;
+    }
+
+    private int setCheck(net.minecraft.commands.CommandSourceStack source, String name, boolean enabled) {
+        if (!com.antifly.common.CheckNames.FABRIC.contains(name)) return showCheck(source, name);
+        java.util.Set<String> disabled = new java.util.HashSet<>(config.disabledChecks);
+        if (enabled) disabled.remove(name); else disabled.add(name);
+        config.disabledChecks = disabled.stream().sorted().toList();
+        saveConfig();
+        return showCheck(source, name);
+    }
+
+    private void debugIntervention(ServerPlayer player, String reason, String setting, double actual, double allowed) {
+        var server = player.level().getServer();
+        if (server == null) return;
+        String check = com.antifly.common.CheckNames.forReason(reason);
+        String control = com.antifly.common.CheckNames.valid(check) ? " check=" + check : "";
+        String message = String.format("[AntiFly debug] %s: %s%s tune=%s actual=%.3f allowed=%.3f",
+            player.getName().getString(), reason, control, setting, actual, allowed);
+        for (ServerPlayer viewer : server.getPlayerList().getPlayers()) {
+            if (isDebug(viewer)) viewer.sendSystemMessage(Component.literal(message));
+        }
     }
 
     private void sendDebugActionBar(ServerPlayer player, PlayerState state, String mode,
@@ -1758,8 +1819,10 @@ public final class AntiFlyFabric implements ModInitializer {
         }
         var result = state.mountMotion.sample(tick, horizontalDistance(prev, pos), pos.y - prev.y,
             isGhastMount(vehicle) || isMountSupported(vehicle), speed, Math.max(jump, aquatic ? 1.2 : camel ? 1.5 : jump),
-            vehicleAirGraceTicks(vehicle), dash, dashBoost, camel ? 55 : 40, isTouchingBounceBlock(vehicle));
-        if (result == com.antifly.common.MountMotion.Result.OK) return true;
+            vehicleAirGraceTicks(vehicle), dash, dashBoost, camel ? 55 : 40, isTouchingBounceBlock(vehicle),
+            checkEnabled("vehicle_speed"), config.vehicleFlightEnabled && checkEnabled("vehicle_flight"));
+        if (result == com.antifly.common.MountMotion.Result.OK
+            || (result == com.antifly.common.MountMotion.Result.FLIGHT && !config.vehicleFlightEnabled)) return true;
         Vec3 target = state.lastSupportPos != null ? state.lastSupportPos : player.position();
         rubberBandVehicle(player, state, target,
             result == com.antifly.common.MountMotion.Result.SPEED ? "vehicle_speed" : "vehicle_flight",
@@ -1957,40 +2020,50 @@ public final class AntiFlyFabric implements ModInitializer {
     private void damageVoid(ServerPlayer player) {
         float dmg = (float) config.hungerModeFlightDamagePerSecond;
         if (dmg > 0.0f) {
+            debugIntervention(player, "void_damage", "voidaccess/hungerModeFlightDamagePerSecond", dmg, 0.0);
             player.hurt(player.damageSources().generic(), dmg);
         }
     }
 
     private int setValue(net.minecraft.commands.CommandSourceStack source, String key, double value) {
+        if (INACTIVE_SETTINGS.contains(normalizeSettingKey(key))) {
+            source.sendFailure(Component.literal("This legacy setting no longer affects enforcement. Use /antifly check and /antifly set to see active controls."));
+            return 0;
+        }
+        if (!Double.isFinite(value)) {
+            source.sendFailure(Component.literal("Value must be finite."));
+            return 0;
+        }
         if (config.elytraVerifierTuning.update(normalizeSettingKey(key), value)) {
             saveConfig();
             source.sendSuccess(() -> Component.literal("Set " + key + " to " + value), false);
             return 1;
         }
         switch (normalizeSettingKey(key)) {
-            case "groundSpeed", "groundSpeedWalking" -> config.groundWalkMax = value;
-            case "groundSpeedMounted" -> config.groundMountedMax = value;
+            case "groundWalkMax", "groundSpeed", "groundSpeedWalking" -> config.groundWalkMax = value;
+            case "groundMountedMax", "groundSpeedMounted" -> config.groundMountedMax = value;
             case "boatSpeed", "boatMaxHorizontal" -> config.boatMaxHorizontal = value;
             case "vehicleFallMinDescent" -> config.vehicleFallMinDescent = value;
             case "vehicleFallMaxHorizontal" -> config.vehicleFallMaxHorizontal = value;
             case "vehicleFallTicksMax" -> config.vehicleFallTicksMax = (int) Math.round(value);
             case "vehicleAirGraceTicks" -> config.vehicleAirGraceTicks = (int) Math.round(value);
+            case "vehicleFlightEnabled" -> config.vehicleFlightEnabled = value > 0.5;
             case "boatAirGraceTicks" -> config.boatAirGraceTicks = (int) Math.round(value);
             case "horseAirGraceTicks" -> config.horseAirGraceTicks = (int) Math.round(value);
-            case "airSpeed" -> config.airMax = value;
-            case "airVertical" -> config.airVerticalMax = value;
+            case "maxAirHorizontal", "airSpeed" -> config.airMax = value;
+            case "maxAirVertical", "airVertical" -> config.airVerticalMax = value;
             case "bufferDecay" -> config.bufferDecay = value;
             case "horizontalBufferLimit" -> config.horizontalBufferLimit = value;
             case "verticalBufferLimit" -> config.verticalBufferLimit = value;
             case "hoverBufferLimit" -> config.hoverBufferLimit = value;
             case "setbackCooldownMs" -> config.setbackCooldownMs = (long) Math.round(value);
             case "noFallDetectionEnabled" -> config.noFallDetectionEnabled = value > 0.5;
-            case "airNonFallTicks" -> config.airNonFallTicks = (int) Math.round(value);
+            case "airNonFallTicksLimit", "airNonFallTicks" -> config.airNonFallTicks = (int) Math.round(value);
             case "antiKickWindowTicks" -> config.antiKickWindowTicks = (int) Math.round(value);
             case "antiKickMinDescent" -> config.antiKickMinDescent = value;
             case "voidFallTicks" -> config.voidFallTicks = (int) Math.round(value);
-            case "waterSpeed" -> config.waterMax = value;
-            case "waterVertical" -> config.waterVerticalMax = value;
+            case "waterMax", "waterSpeed" -> config.waterMax = value;
+            case "waterVerticalMax", "waterVertical" -> config.waterVerticalMax = value;
             case "elytraEnabled" -> config.elytraChecksEnabled = value > 0.5;
             case "elytraMaxHorizontal" -> config.elytraMaxHorizontal = value;
             case "elytraMaxUp" -> config.elytraMaxUp = value;
@@ -2046,6 +2119,10 @@ public final class AntiFlyFabric implements ModInitializer {
     }
 
     private int getValue(net.minecraft.commands.CommandSourceStack source, String key) {
+        if (INACTIVE_SETTINGS.contains(normalizeSettingKey(key))) {
+            source.sendFailure(Component.literal("This legacy setting no longer affects enforcement."));
+            return 0;
+        }
         String value = formatSettingValue(normalizeSettingKey(key));
         if (value == null) {
             source.sendFailure(Component.literal("Unknown key."));
@@ -2100,6 +2177,7 @@ public final class AntiFlyFabric implements ModInitializer {
             case "antiKickMinDescent" -> String.valueOf(config.antiKickMinDescent);
             case "voidFallTicks" -> String.valueOf(config.voidFallTicks);
             case "vehicleAirGraceTicks" -> String.valueOf(config.vehicleAirGraceTicks);
+            case "vehicleFlightEnabled" -> String.valueOf(config.vehicleFlightEnabled);
             case "boatAirGraceTicks" -> String.valueOf(config.boatAirGraceTicks);
             case "horseAirGraceTicks" -> String.valueOf(config.horseAirGraceTicks);
             case "waterSpeed" -> String.valueOf(config.waterMax);
@@ -2141,6 +2219,14 @@ public final class AntiFlyFabric implements ModInitializer {
         };
     }
 
+    private static final java.util.Set<String> INACTIVE_SETTINGS = java.util.Set.of(
+        "bufferDecay", "horizontalBufferLimit", "verticalBufferLimit", "hoverBufferLimit", "setbackCooldownMs",
+        "vehicleFallMinDescent", "vehicleFallMaxHorizontal", "vehicleFallTicksMax", "boatAirGraceTicks",
+        "elytraMaxHorizontal", "elytraMaxUp", "elytraNoRocketSustainableHorizontal", "elytraMaxRocketHorizontal",
+        "elytraMaxNoRocketUp", "elytraMaxRocketUp", "elytraStallTicks", "elytraMovementBufferLimit",
+        "elytraDurabilityCheckEnabled", "elytraNoRocketMaxAscent", "elytraSustainedClimbTicksLimit", "elytraSlowdownGraceTicks",
+        "elytraStallHorizontalMax", "elytraStallVerticalMax",
+        "elytraRequiredDescentForPullup");
     private static final java.util.List<String> SET_KEYS = java.util.List.of(
         "groundWalkMax",
         "groundMountedMax",
@@ -2172,6 +2258,7 @@ public final class AntiFlyFabric implements ModInitializer {
         "antiKickMinDescent",
         "voidFallTicks",
         "vehicleAirGraceTicks",
+        "vehicleFlightEnabled",
         "boatAirGraceTicks",
         "horseAirGraceTicks",
         "vehicleFallMinDescent",
@@ -2212,7 +2299,7 @@ public final class AntiFlyFabric implements ModInitializer {
         "impulseGraceTicks",
         "groundSpoofTicksLimit",
         "repeatOffenderAlertCount"
-    );
+    ).stream().filter(key -> !INACTIVE_SETTINGS.contains(key)).toList();
     private String normalizeSettingKey(String key) {
         if (key.regionMatches(true, 0, "elytra.verifier.", 0, 16)) {
             String child = key.substring(16);
@@ -2250,6 +2337,7 @@ public final class AntiFlyFabric implements ModInitializer {
             case "horseAirGraceTicks" -> "horseAirGraceTicks";
             case "boatSpeed", "boatMaxHorizontal" -> "boatMaxHorizontal";
             case "vehicle_air_grace_ticks" -> "vehicleAirGraceTicks";
+            case "vehicle_flight_enabled" -> "vehicleFlightEnabled";
             case "boat_air_grace_ticks" -> "boatAirGraceTicks";
             case "horse_air_grace_ticks" -> "horseAirGraceTicks";
             case "boat_max_horizontal" -> "boatMaxHorizontal";
@@ -2503,6 +2591,7 @@ public final class AntiFlyFabric implements ModInitializer {
         int vehicleFallTicksMax = AntiFlyConstants.VEHICLE_FALL_TICKS_MAX;
         double boatMaxHorizontal = AntiFlyConstants.BOAT_MAX_HORIZONTAL;
         int vehicleAirGraceTicks = 10;
+        boolean vehicleFlightEnabled = true;
         int boatAirGraceTicks = 0;
         int horseAirGraceTicks = 24;
         String modrinthProjectSlug = "antiflight";
@@ -2548,6 +2637,7 @@ public final class AntiFlyFabric implements ModInitializer {
         double elytraRequiredDescentForPullup = 0.75;
         int elytraSlowdownGraceTicks = AntiFlyConstants.ELYTRA_SLOWDOWN_GRACE_TICKS;
         java.util.List<String> disabledWorlds = java.util.List.of();
+        java.util.List<String> disabledChecks = java.util.List.of();
         java.util.List<String> exempt = java.util.List.of();
         int configVersion = 0;
 
@@ -2569,6 +2659,7 @@ public final class AntiFlyFabric implements ModInitializer {
                     String json = Files.readString(path);
                     AntiFlyConfig cfg = GSON.fromJson(json, AntiFlyConfig.class);
                     if (cfg != null) {
+                        if (cfg.disabledChecks == null) cfg.disabledChecks = java.util.List.of();
                         if (cfg.elytraVerifierTuning == null) {
                             cfg.elytraVerifierTuning = new com.antifly.common.ElytraPhysics.Tuning();
                         }
@@ -2736,6 +2827,7 @@ public final class AntiFlyFabric implements ModInitializer {
         int glideHoverTicks;
         int glideControlTicks;
         int glideSuppressTicks;
+        String glideSuppressCheck = "elytra_physics";
         int glideSustainedClimbTicks;
         final com.antifly.common.ElytraPhysics elytraVerifier = new com.antifly.common.ElytraPhysics();
         final com.antifly.common.ElytraPhysics hungerElytraVerifier = new com.antifly.common.ElytraPhysics();

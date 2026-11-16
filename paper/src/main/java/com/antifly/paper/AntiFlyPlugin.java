@@ -18,6 +18,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
     private final Map<UUID, PlayerState> states = new ConcurrentHashMap<>();
     private final Set<UUID> exempt = ConcurrentHashMap.newKeySet();
     private final Set<UUID> debug = ConcurrentHashMap.newKeySet();
+    private final Set<String> disabledChecks = ConcurrentHashMap.newKeySet();
     private final Set<UUID> notifiedOutdatedOps = ConcurrentHashMap.newKeySet();
     private final Settings settings = new Settings();
     private boolean antiFlyEnabled = true;
@@ -125,6 +126,16 @@ public final class AntiFlyPlugin extends JavaPlugin {
         return debug.contains(player.getUniqueId());
     }
 
+    boolean checkEnabled(String name) {
+        return !disabledChecks.contains(com.antifly.common.CheckNames.forReason(name));
+    }
+
+    void setCheckEnabled(String name, boolean enabled) {
+        if (enabled) disabledChecks.remove(name); else disabledChecks.add(name);
+        getConfig().set("disabledChecks", disabledChecks.stream().sorted().toList());
+        saveConfig();
+    }
+
     void setDebug(Player player, boolean enabled) {
         if (enabled) {
             debug.add(player.getUniqueId());
@@ -201,6 +212,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "waterVerticalMax" -> settings.waterVerticalMax = value;
             case "boatMaxHorizontal" -> settings.boatMaxHorizontal = value;
             case "airGraceTicks" -> settings.airGraceTicks = Math.max(0, (int) Math.round(value));
+            case "airTeleportDistance" -> settings.airTeleportDistance = Math.max(0.0, value);
             case "hoverStartTicks" -> settings.hoverStartTicks = Math.max(0, (int) Math.round(value));
             case "hoverTicksLimit" -> settings.hoverTicksLimit = Math.max(0, (int) Math.round(value));
             case "hoverDeltaY" -> settings.hoverDeltaY = Math.max(0.0, value);
@@ -218,6 +230,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "antiKickMinDescent" -> settings.antiKickMinDescent = value;
             case "setbackCooldownMs" -> settings.setbackCooldownMs = (long) Math.round(value);
             case "vehicleAirGraceTicks" -> settings.vehicleAirGraceTicks = (int) Math.round(value);
+            case "vehicleFlightEnabled" -> settings.vehicleFlightEnabled = value > 0.5;
             case "boatAirGraceTicks" -> settings.boatAirGraceTicks = (int) Math.round(value);
             case "horseAirGraceTicks" -> settings.horseAirGraceTicks = (int) Math.round(value);
             case "elytraToggleGraceTicks" -> settings.elytraToggleGraceTicks = Math.max(0, (int) Math.round(value));
@@ -344,6 +357,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("enabled", true);
 
         config.addDefault("antiFly.airGraceTicks", 4);
+        config.addDefault("antiFly.airTeleportDistance", 6.0);
         config.addDefault("antiFly.maxAirHorizontal", AntiFlyConstants.DEFAULT_AIR_MAX);
         config.addDefault("antiFly.maxAirVertical", AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX);
         config.addDefault("antiFly.hoverStartTicks", 12);
@@ -354,6 +368,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.addDefault("antiFly.antiKickWindowTicks", 40);
         config.addDefault("antiFly.antiKickMinDescent", 0.35);
         config.addDefault("antiFly.vehicleAirGraceTicks", 10);
+        config.addDefault("antiFly.vehicleFlightEnabled", true);
         config.addDefault("antiFly.boatAirGraceTicks", 0);
         config.addDefault("antiFly.horseAirGraceTicks", 24);
         config.addDefault("antiFly.horizontalBufferLimit", 3.0);
@@ -421,8 +436,11 @@ public final class AntiFlyPlugin extends JavaPlugin {
 
         config.addDefault("modrinth.projectSlug", "antiflight");
         config.addDefault("disabledWorlds", java.util.List.of());
+        config.addDefault("disabledChecks", java.util.List.of());
         config.addDefault("exempt", java.util.List.of());
         config.options().copyDefaults(true);
+        disabledChecks.clear();
+        disabledChecks.addAll(config.getStringList("disabledChecks"));
         migrateLegacyDefaults(config);
         saveConfig();
 
@@ -435,6 +453,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.boatMaxHorizontal = config.getDouble("limits.boatHorizontal", AntiFlyConstants.BOAT_MAX_HORIZONTAL);
 
         settings.airGraceTicks = config.getInt("antiFly.airGraceTicks", 4);
+        settings.airTeleportDistance = Math.max(0.0, config.getDouble("antiFly.airTeleportDistance", 6.0));
         settings.maxAirHorizontal = config.getDouble("antiFly.maxAirHorizontal", AntiFlyConstants.DEFAULT_AIR_MAX);
         settings.maxAirVertical = config.getDouble("antiFly.maxAirVertical", AntiFlyConstants.DEFAULT_AIR_VERTICAL_MAX);
         settings.hoverStartTicks = config.getInt("antiFly.hoverStartTicks", 12);
@@ -445,6 +464,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         settings.antiKickWindowTicks = config.getInt("antiFly.antiKickWindowTicks", 40);
         settings.antiKickMinDescent = config.getDouble("antiFly.antiKickMinDescent", 0.35);
         settings.vehicleAirGraceTicks = config.getInt("antiFly.vehicleAirGraceTicks", 10);
+        settings.vehicleFlightEnabled = config.getBoolean("antiFly.vehicleFlightEnabled", true);
         settings.boatAirGraceTicks = config.getInt("antiFly.boatAirGraceTicks", 0);
         settings.horseAirGraceTicks = config.getInt("antiFly.horseAirGraceTicks", 24);
         config.set("antiFly.boatAirGraceTicks", settings.boatAirGraceTicks);
@@ -549,6 +569,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("antiFly.hoverHorizontal", settings.hoverHorizontal);        config.set("antiFly.maxAirHorizontal", settings.maxAirHorizontal);
         config.set("antiFly.maxAirVertical", settings.maxAirVertical);
         config.set("antiFly.bufferDecay", settings.bufferDecay);
+        config.set("antiFly.airTeleportDistance", settings.airTeleportDistance);
         config.set("antiFly.horizontalBufferLimit", settings.horizontalBufferLimit);
         config.set("antiFly.verticalBufferLimit", settings.verticalBufferLimit);
         config.set("antiFly.hoverBufferLimit", settings.hoverBufferLimit);
@@ -565,6 +586,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         config.set("antiFly.antiKickWindowTicks", settings.antiKickWindowTicks);
         config.set("antiFly.antiKickMinDescent", settings.antiKickMinDescent);
         config.set("antiFly.vehicleAirGraceTicks", settings.vehicleAirGraceTicks);
+        config.set("antiFly.vehicleFlightEnabled", settings.vehicleFlightEnabled);
         config.set("antiFly.boatAirGraceTicks", settings.boatAirGraceTicks);
         config.set("antiFly.horseAirGraceTicks", settings.horseAirGraceTicks);
         config.set("antiFly.setbackCooldownMs", settings.setbackCooldownMs);
@@ -642,6 +664,8 @@ public final class AntiFlyPlugin extends JavaPlugin {
             case "horseAirGrace", "horseAirGraceTicks" -> "horseAirGraceTicks";
             case "boatSpeed", "boatMaxHorizontal" -> "boatMaxHorizontal";
             case "vehicle_air_grace_ticks" -> "vehicleAirGraceTicks";
+            case "vehicle_flight_enabled" -> "vehicleFlightEnabled";
+            case "air_teleport_distance" -> "airTeleportDistance";
             case "boat_air_grace_ticks" -> "boatAirGraceTicks";
             case "horse_air_grace_ticks" -> "horseAirGraceTicks";
             case "boat_max_horizontal" -> "boatMaxHorizontal";
@@ -745,6 +769,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double boatMaxHorizontal;
 
         int airGraceTicks;
+        double airTeleportDistance;
         double maxAirHorizontal;
         double maxAirVertical;
         int hoverStartTicks;
@@ -755,6 +780,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         int antiKickWindowTicks;
         double antiKickMinDescent;
         int vehicleAirGraceTicks;
+        boolean vehicleFlightEnabled;
         int boatAirGraceTicks;
         int horseAirGraceTicks;
         double horizontalBufferLimit;
@@ -927,6 +953,7 @@ public final class AntiFlyPlugin extends JavaPlugin {
         double elytraNetAltitude;
         int glideSustainedClimbTicks;
         int glideSuppressTicks;
+        String glideSuppressCheck = "elytra_physics";
         final com.antifly.common.ElytraPhysics elytraVerifier = new com.antifly.common.ElytraPhysics();
         final com.antifly.common.ElytraPhysics.Input elytraInput = new com.antifly.common.ElytraPhysics.Input();
         org.bukkit.Location lastElytraSample;
