@@ -15,8 +15,10 @@ AntiFly is not a full anti-cheat, and that is deliberate. It is built for server
 - **Setbacks nobody complains about.** Players are corrected to their last known valid support instead of being yanked out of the sky mid-air.
 - **Elytra handled properly.** A trajectory verifier predicts the next vanilla glide step from pitch, yaw and prior velocity, then weighs residual motion, excess energy, unnaturally constant speed and impossible turns - and only acts when several channels agree. Rocket boosts, steep dives, pull-ups and obstacle crashes are all left alone.
 - **Teleport-aware.** `/tp`, ender pearls, chorus fruit and portals are rebased rather than mistaken for flight, so legitimate travel never rubber-bands.
+- **Mount and bounce aware.** Vehicle checks account for normal riding, jumps and supported movement, including camel and nautilus dashes. Bed and slime-block rebounds are handled separately from suspicious flight.
+- **Live controls and diagnostics.** Staff can enable or disable individual checks without restarting and see which check caused an intervention in debug messages.
 - **It does not advertise itself.** The root command is permission-gated on both platforms so clients that probe a server's command list with suggestion packets get nothing back. 
-- **One shared codebase.** The same checks run on Paper and Fabric, so a detection is never fixed on one platform and forgotten on the other.
+- **Shared movement logic.** Paper and Fabric share core movement logic, with platform-specific checks and controls listed in the configuration guide.
 
 ## Hunger Mode
 
@@ -71,11 +73,13 @@ The same set on Paper and Fabric. Requires op or `antifly.admin` on Paper, moder
 - `/antifly alerts <off|game|console|both>` - where violation alerts are delivered
 - `/antifly reload` - re-read the config from disk, no restart needed
 - `/antifly set` - list every tunable key with its current value
+- `/antifly check [name] [on|off]` - list, inspect or toggle individual checks
+- `/antifly debug <on|off>` - show intervention messages with the player, reason and relevant controls
 
-Also available: `/antifly set <key> [value]`, `/antifly debug`, `/antifly exempt` / `unexempt`, `/antifly reset` and `/antifly disabledworlds`. The full command reference is in **[CONFIGURATION.md](CONFIGURATION.md)**.
+Also available: `/antifly set <key> [value]`, `/antifly exempt` / `unexempt`, `/antifly reset` and `/antifly disabledworlds`. The full command reference is in **[CONFIGURATION.md](CONFIGURATION.md)**.
 
 ## Configuration
-Every check is tunable at runtime with `/antifly set <key> <value>`. Changes apply instantly and auto-save, so there is no restart and no file editing.
+Use `/antifly set <key> <value>` to adjust available settings and `/antifly check <name> <on|off>` to control an individual check. Changes apply instantly and auto-save. Some checks overlap, so another enabled check may still correct the same movement; not every threshold is individually adjustable.
 
 Defaults are chosen to stay forgiving of vanilla movement - sprinting, Depth Strider, Dolphin's Grace, Speed potions, wind charges, knockback and rockets are all expected and unpunished - so the common case really is "install it and leave it alone".
 
